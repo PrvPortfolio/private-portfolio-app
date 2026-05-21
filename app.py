@@ -67,7 +67,7 @@ if "assets" not in st.session_state:
 if "streaming_history" not in st.session_state:
     st.session_state.streaming_history = []
 
-# --- BACKGROUND AUTOMATION: AUTOMATIC LOGIN RECOVERY ---
+# --- BACKGROUND AUTOMATION ---
 time.sleep(0.2)  
 cached_enc_data = cookie_manager.get(cookie="secure_portfolio_data")
 cached_key_pass = cookie_manager.get(cookie="secure_portfolio_key")
@@ -83,7 +83,7 @@ if cached_enc_data and cached_key_pass and len(st.session_state.assets) == 0:
 # --- SIDEBAR INTERFACE ---
 st.sidebar.markdown('<h2 style="margin-top:0;">⚡ Asset Intake</h2>', unsafe_allow_html=True)
 asset_type = st.sidebar.selectbox("Asset Classification", ["Stock", "Crypto"])
-ticker = st.sidebar.text_input("Ticker Label", placeholder="NVDA...").upper().strip()
+ticker = st.sidebar.text_input("Ticker Label", placeholder="BTC-USD...").upper().strip()
 amount = st.sidebar.number_input("Position Size", min_value=0.0, step=0.01, format="%.6f")
 
 if st.sidebar.button("➕ Inject into Position"):
@@ -103,18 +103,7 @@ refresh_interval = st.sidebar.slider("Refresh Interval (Seconds)", min_value=5, 
 
 # --- DASHBOARD CALCULATION AND RENDER ---
 if len(st.session_state.assets) == 0:
-    st.info("💡 Your workspace is clean. Use the input on the left to add assets. Once you create a password and save, this specific browser will remember it automatically.")
-    
-    with st.expander("📥 Moving devices? Import manual .enc file backup"):
-        up_f = st.file_uploader("Upload .enc file:", type=["enc"])
-        pass_f = st.text_input("File password:", type="password")
-        if up_f and pass_f and st.button("Restore Manual Backup"):
-            try:
-                st.session_state.assets = json.loads(decrypt_data(up_f.read().decode(), pass_f))
-                st.success("Loaded! Create a password below to lock it into this browser's auto-vault.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error matching credentials: {e}")
+    st.info("💡 Your workspace is clean. Use the input on the left to add assets.")
 else:
     now = get_chicago_now()
     updated_data = []
@@ -123,12 +112,16 @@ else:
     for asset in st.session_state.assets:
         try:
             ticker_obj = yf.Ticker(asset["ticker"])
-            live_price = ticker_obj.fast_info['lastPrice']
+            
+            # THE FIX: Force a fresh 1-minute interval payload to bypass yfinance caching
+            hist_data = ticker_obj.history(period="1d", interval="1m")
+            
+            if not hist_data.empty:
+                live_price = float(hist_data["Close"].iloc[-1])
+            else:
+                live_price = float(ticker_obj.fast_info['lastPrice'])
         except Exception:
-            try:
-                live_price = ticker_obj.history(period="1d")["Close"].iloc[-1]
-            except Exception:
-                live_price = 0.0
+            live_price = 0.0
             
         total_value = live_price * asset["holdings"]
         total_portfolio_value += total_value
@@ -142,7 +135,11 @@ else:
         })
         
     df = pd.DataFrame(updated_data)
-    st.session_state.streaming_history.append({"Timestamp": now.strftime('%H:%M:%S'), "Total Portfolio Worth ($)": round(total_portfolio_value, 2)})
+    st.session_state.streaming_history.append({
+        "Timestamp": now.strftime('%H:%M:%S'), 
+        "Total Portfolio Worth ($)": round(total_portfolio_value, 2)
+    })
+    
     if len(st.session_state.streaming_history) > 100:
         st.session_state.streaming_history.pop(0)
 
@@ -166,12 +163,18 @@ else:
         if chart_choice == "Live Zero-Delay Tracker":
             fig_stream = px.line(pd.DataFrame(st.session_state.streaming_history), x="Timestamp", y="Total Portfolio Worth ($)", template="plotly_dark")
             fig_stream.update_traces(line_color="#00f2fe", line_width=4, mode="lines+markers")
+            
+            # THE FIX: Force the Y-Axis to dynamically zoom in on micro-cents so small changes show as huge spikes visually
+            fig_stream.update_yaxes(autorange=True, fixedrange=False)
             fig_stream.update_layout(margin=dict(l=20, r=20, t=10, b=20), height=250, xaxis_title=None)
+            
             st.plotly_chart(fig_stream, use_container_width=True)
+            
         elif chart_choice == "Donut Chart Breakdown":
             fig = px.pie(df, values="Total Value ($)", names="Ticker", hole=0.4, template="plotly_dark")
             fig.update_layout(margin=dict(l=20, r=20, t=10, b=20), height=250)
             st.plotly_chart(fig, use_container_width=True)
+            
         elif chart_choice == "Bar Graph Distribution":
             fig_bar = px.bar(df, x="Ticker", y="Total Value ($)", color="Ticker", template="plotly_dark")
             fig_bar.update_layout(margin=dict(l=20, r=20, t=10, b=20), height=250, showlegend=False)
@@ -179,10 +182,7 @@ else:
 
     st.markdown("---")
 
-    # --- AUTONOMOUS CACHING CONTROLLER ---
     st.subheader("🔒 Remember Me (Secure Browser Auto-Vault)")
-    st.write("Scramble and lock your session settings directly inside this local device's memory cache so you never have to re-upload files or log in manually.")
-    
     col_lock1, col_lock2 = st.columns(2)
     with col_lock1:
         vault_password = st.text_input("Create a Master Password to lock down local storage:", type="password", placeholder="Enter password...", key="v_pass")
@@ -192,8 +192,6 @@ else:
             if vault_password:
                 raw_json = json.dumps(st.session_state.assets)
                 encrypted_payload = encrypt_data(raw_json, vault_password)
-                
-                # NATIVE FIX: Added unique keys to prevent duplicate element crashes
                 cookie_manager.set("secure_portfolio_data", encrypted_payload, key="set_data_widget")
                 cookie_manager.set("secure_portfolio_key", vault_password, key="set_key_widget")
                 st.success("Vault engaged! This browser will now auto-load your portfolio instantly on refresh.")
@@ -218,7 +216,6 @@ else:
     st.markdown("---")
     
     if st.button("🔴 Purge and Log Out of This Browser Session", use_container_width=True):
-        # NATIVE FIX: Added unique keys here too
         cookie_manager.delete("secure_portfolio_data", key="del_data_widget")
         cookie_manager.delete("secure_portfolio_key", key="del_key_widget")
         st.session_state.assets = []
