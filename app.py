@@ -47,7 +47,6 @@ def decrypt_data(cipher_text_b64: str, password: str) -> str:
 # --- WEB PAGE CONFIG ---
 st.set_page_config(page_title="Portfolio Pro | Private Tracker", layout="wide")
 
-# Correct non-cached instantiation to clear CachedWidgetWarning
 cookie_manager = stx.CookieManager()
 
 st.markdown("""
@@ -69,7 +68,7 @@ if "streaming_history" not in st.session_state:
     st.session_state.streaming_history = []
 
 # --- BACKGROUND AUTOMATION: AUTOMATIC LOGIN RECOVERY ---
-time.sleep(0.2)  # Yield brief window for client handshake initialization
+time.sleep(0.2)  
 cached_enc_data = cookie_manager.get(cookie="secure_portfolio_data")
 cached_key_pass = cookie_manager.get(cookie="secure_portfolio_key")
 
@@ -147,7 +146,6 @@ else:
     if len(st.session_state.streaming_history) > 100:
         st.session_state.streaming_history.pop(0)
 
-    # Net Valuation Metric Card
     st.markdown(f"""
         <div class="metric-card">
             <span style="color:#8a93a6; font-size:13px; text-transform:uppercase; font-weight:bold; letter-spacing:1px;">Net Asset Valuation</span>
@@ -195,9 +193,9 @@ else:
                 raw_json = json.dumps(st.session_state.assets)
                 encrypted_payload = encrypt_data(raw_json, vault_password)
                 
-                # Direct safe injection to browser storage cookies
-                cookie_manager.set("secure_portfolio_data", encrypted_payload)
-                cookie_manager.set("secure_portfolio_key", vault_password)
+                # NATIVE FIX: Added unique keys to prevent duplicate element crashes
+                cookie_manager.set("secure_portfolio_data", encrypted_payload, key="set_data_widget")
+                cookie_manager.set("secure_portfolio_key", vault_password, key="set_key_widget")
                 st.success("Vault engaged! This browser will now auto-load your portfolio instantly on refresh.")
                 time.sleep(1)
                 st.rerun()
@@ -206,7 +204,6 @@ else:
 
     st.markdown("---")
 
-    # Local Data Extraction Suite (CSV Downloader)
     st.subheader("🗄️ Local Data Extraction Suite")
     col_file1, col_file2, col_file3, col_file4 = st.columns(4)
     with col_file1:
@@ -220,17 +217,16 @@ else:
 
     st.markdown("---")
     
-    # Reset/Wipe button
     if st.button("🔴 Purge and Log Out of This Browser Session", use_container_width=True):
-        cookie_manager.delete("secure_portfolio_data")
-        cookie_manager.delete("secure_portfolio_key")
+        # NATIVE FIX: Added unique keys here too
+        cookie_manager.delete("secure_portfolio_data", key="del_data_widget")
+        cookie_manager.delete("secure_portfolio_key", key="del_key_widget")
         st.session_state.assets = []
         st.session_state.streaming_history = []
         st.success("Browser storage successfully deleted!")
         time.sleep(1)
         st.rerun()
 
-    # Streaming interval trigger execution loop
     if live_stream_active:
         time.sleep(refresh_interval)
         st.rerun()
