@@ -82,11 +82,12 @@ bg_color = "#181A20"
 text_color = "#EDEDED"
 sidebar_color = "#22252B"
 card_color = "#2D3138"
+
 else:
-    bg_color = "#ffffff"
-    text_color = "#000000"
-    sidebar_color = "#f3f3f3"
-    card_color = "#e9e9e9"
+bg_color = "#ffffff"
+text_color = "#000000"
+sidebar_color = "#f3f3f3"
+card_color = "#e9e9e9"
 
 # -----------------------------------
 # CUSTOM CSS
