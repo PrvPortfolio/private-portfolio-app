@@ -78,10 +78,10 @@ rate = conversion_rates[currency]
 # -----------------------------------
 
 if theme == "Dark":
-    bg_color = "#000000"
-    text_color = "#ffffff"
-    sidebar_color = "#0e0f11"
-    card_color = "#1e2124"
+bg_color = "#181A20"
+text_color = "#EDEDED"
+sidebar_color = "#22252B"
+card_color = "#2D3138"
 else:
     bg_color = "#ffffff"
     text_color = "#000000"
