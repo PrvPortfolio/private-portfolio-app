@@ -3,3 +3,4 @@ yfinance
 pandas
 cryptography
 plotly
+streamlit-local-storage
