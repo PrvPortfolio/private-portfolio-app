@@ -7,7 +7,7 @@ from datetime import datetime
 import pytz
 import plotly.express as px
 import time
-from streamlit_local_storage import StLocalStorage
+import extra_streamlit_components as stx
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -46,7 +46,13 @@ def decrypt_data(cipher_text_b64: str, password: str) -> str:
 
 # --- APP LAYOUT ---
 st.set_page_config(page_title="Portfolio Pro | Private Tracker", layout="wide")
-local_storage = StLocalStorage()
+
+# Initialize the stable cookie/local storage manager
+@st.cache_resource
+def get_cookie_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_cookie_manager()
 
 st.markdown("""
     <style>
@@ -67,8 +73,10 @@ if "streaming_history" not in st.session_state:
     st.session_state.streaming_history = []
 
 # --- BACKGROUND AUTOMATION: AUTOMATIC LOGIN RECOVERY ---
-cached_enc_data = local_storage.get("secure_portfolio_data")
-cached_key_pass = local_storage.get("secure_portfolio_key")
+# Wait a fraction of a second for the cookie manager to ready itself
+time.sleep(0.2)
+cached_enc_data = cookie_manager.get(cookie="secure_portfolio_data")
+cached_key_pass = cookie_manager.get(cookie="secure_portfolio_key")
 
 if cached_enc_data and cached_key_pass and len(st.session_state.assets) == 0:
     try:
@@ -103,7 +111,6 @@ refresh_interval = st.sidebar.slider("Refresh Interval (Seconds)", min_value=5, 
 if len(st.session_state.assets) == 0:
     st.info("💡 Your workspace is clean. Use the input on the left to add assets. Once you create a password and save, this specific browser will remember it automatically.")
     
-    # Simple manual import utility if they are switching computers
     with st.expander("📥 Moving devices? Import manual .enc file backup"):
         up_f = st.file_uploader("Upload .enc file:", type=["enc"])
         pass_f = st.text_input("File password:", type="password")
@@ -193,9 +200,9 @@ else:
                 raw_json = json.dumps(st.session_state.assets)
                 encrypted_payload = encrypt_data(raw_json, vault_password)
                 
-                # Push the encrypted payloads natively into the user's browser storage data banks
-                local_storage.set("secure_portfolio_data", encrypted_payload)
-                local_storage.set("secure_portfolio_key", vault_password)
+                # Push the encrypted payloads natively into the browser cookie storage bank
+                cookie_manager.set("secure_portfolio_data", encrypted_payload)
+                cookie_manager.set("secure_portfolio_key", vault_password)
                 st.success("Vault engaged! This browser will now auto-load your portfolio instantly on refresh.")
                 time.sleep(1)
                 st.rerun()
@@ -220,8 +227,8 @@ else:
     
     # Reset/Wipe button
     if st.button("🔴 Purge and Log Out of This Browser Session", use_container_width=True):
-        local_storage.delete("secure_portfolio_data")
-        local_storage.delete("secure_portfolio_key")
+        cookie_manager.delete("secure_portfolio_data")
+        cookie_manager.delete("secure_portfolio_key")
         st.session_state.assets = []
         st.session_state.streaming_history = []
         st.success("Browser storage successfully deleted!")
