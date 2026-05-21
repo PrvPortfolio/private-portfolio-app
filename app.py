@@ -50,7 +50,7 @@ def decrypt_data(cipher_text_b64: str, password: str) -> str:
 # --- WEB PAGE CONFIG ---
 st.set_page_config(page_title="Portfolio Pro | Private Tracker", layout="wide", initial_sidebar_state="expanded")
 
-# Inject Custom CSS for a professional, clean UI appearance
+# Custom UI CSS Styling
 st.markdown("""
     <style>
     .main { background-color: #0e1117; }
@@ -65,14 +65,14 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Main Title Header Banner
+# Application Header
 st.markdown('<div style="padding:10px 0px;"><h1 style="color:white;margin-bottom:0;">💼 PORTFOLIO PRO</h1><p style="color:#8a93a6;font-size:14px;margin-top:2px;">Enterprise Privacy Core • Automated Local Archiving</p></div>', unsafe_allow_html=True)
 st.markdown("---")
 
 if "assets" not in st.session_state:
     st.session_state.assets = []
 
-# --- TOP PANEL: FILE INTAKE LINK ---
+# --- TOP PANEL: PROFILE INTAKE ---
 with st.expander("🔓 Load Existing Profile Session (.enc)", expanded=False):
     col_up1, col_up2 = st.columns(2)
     with col_up1:
@@ -109,7 +109,7 @@ if st.sidebar.button("➕ Inject into Position"):
     else:
         st.sidebar.error("Invalid entry criteria.")
 
-# --- DASHBOARD SYSTEM PRESENTATION ---
+# --- DASHBOARD LAYOUT MANAGEMENT ---
 if len(st.session_state.assets) == 0:
     st.info("💡 Application memory is unallocated. Restore an existing profile session above or input custom positions via the sidebar to initialize visual grids.")
 else:
@@ -139,7 +139,7 @@ else:
             
     df = pd.DataFrame(updated_data)
 
-    # 1. VISUAL METRIC BOX
+    # Net Valuation Card Banner
     st.markdown(f"""
         <div class="metric-card">
             <span style="color:#8a93a6; font-size:13px; text-transform:uppercase; font-weight:bold; letter-spacing:1px;">Net Asset Valuation</span>
@@ -147,7 +147,7 @@ else:
         </div>
     """, unsafe_allow_html=True)
 
-    # 2. COLUMNS FOR VISUAL BALANCING (Table left, Chart right)
+    # Dynamic Dual Layout Display Grid
     col_dash1, col_dash2 = st.columns([4, 3])
     
     with col_dash1:
@@ -155,14 +155,34 @@ else:
         st.dataframe(df[["Type", "Ticker", "Holdings", "Price ($)", "Total Value ($)"]], use_container_width=True, hide_index=True)
     
     with col_dash2:
-        st.markdown('<h4 style="color:white;margin-bottom:15px;">🥧 Allocation Breakdown</h4>', unsafe_allow_html=True)
-        fig = px.pie(df, values="Total Value ($)", names="Ticker", hole=0.4, template="plotly_dark")
-        fig.update_layout(margin=dict(l=20, r=20, t=20, b=20), height=260, showlegend=True)
-        st.plotly_chart(fig, use_container_width=True)
+        # VISUAL CHART TYPE CONTROLLER DROP-DOWN
+        st.markdown('<h4 style="color:white;margin-bottom:0px;">⚙️ Visual Framework</h4>', unsafe_allow_html=True)
+        chart_choice = st.selectbox(
+            "Select Dashboard Visual Template:",
+            ["Donut Chart Breakdown", "Bar Graph Distribution", "Raw Metrics List"],
+            label_visibility="collapsed"
+        )
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Render the selected chart framework layout dynamically based on the dropdown choice
+        if chart_choice == "Donut Chart Breakdown":
+            fig = px.pie(df, values="Total Value ($)", names="Ticker", hole=0.4, template="plotly_dark")
+            fig.update_layout(margin=dict(l=20, r=20, t=10, b=20), height=250, showlegend=True)
+            st.plotly_chart(fig, use_container_width=True)
+            
+        elif chart_choice == "Bar Graph Distribution":
+            fig_bar = px.bar(df, x="Ticker", y="Total Value ($)", color="Ticker", template="plotly_dark")
+            fig_bar.update_layout(margin=dict(l=20, r=20, t=10, b=20), height=250, showlegend=False)
+            st.plotly_chart(fig_bar, use_container_width=True)
+            
+        elif chart_choice == "Raw Metrics List":
+            for index, row in df.iterrows():
+                st.metric(label=f"{row['Ticker']} Position Balance", value=f"${row['Total Value ($)']:,.2f}")
 
     st.markdown("---")
 
-    # 3. NEW COMPONENT: GRANULAR DATA ARCHIVING SUITE
+    # Local Data Archiving Suite
     st.subheader("🗄️ Local Data Extraction Suite")
     st.write("Generate and download segmented timeline snapshot files directly to your machine storage array.")
     
@@ -220,7 +240,7 @@ else:
 
     st.markdown("---")
 
-    # 4. ENCRYPTED SYSTEM KEY BACKUP
+    # Encrypted System Profile Key Backup
     st.subheader("🔒 Secure Profile Encryption Profile")
     export_password = st.text_input("Deploy master passphrase to scramble profile structure:", type="password", placeholder="Passphrase...")
     
