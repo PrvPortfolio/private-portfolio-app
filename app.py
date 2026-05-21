@@ -1,229 +1,199 @@
 import streamlit as st
-import pandas as pd
 import yfinance as yf
+import pandas as pd
+import plotly.graph_objects as go
 import json
 import base64
-from datetime import datetime
-import pytz
-import plotly.express as px
 import time
-import extra_streamlit_components as stx
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives import hashes
 
-# --- TIMEZONE CONFIG ---
-def get_chicago_now():
-    return datetime.now(pytz.timezone('America/Chicago'))
+# --- PAGE CONFIGURATION ---
+st.set_page_config(page_title="Portfolio Tracker", layout="centered", initial_sidebar_state="expanded")
 
-# --- CRYPTOGRAPHY ENGINE ---
-def generate_key(password: str, salt: bytes) -> bytes:
-    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=100000)
-    return kdf.derive(password.encode())
-
-def encrypt_data(plain_text: str, password: str) -> str:
-    salt = b"StaticSaltForLocalApp"
-    key = generate_key(password, salt)
-    import os
-    iv = os.urandom(12)
-    encryptor = Cipher(algorithms.AES(key), modes.GCM(iv)).encryptor()
-    ciphertext = encryptor.update(plain_text.encode()) + encryptor.finalize()
-    combined = iv + encryptor.tag + ciphertext
-    return base64.b64encode(combined).decode()
-
-def decrypt_data(cipher_text_b64: str, password: str) -> str:
-    try:
-        salt = b"StaticSaltForLocalApp"
-        key = generate_key(password, salt)
-        combined = base64.b64decode(cipher_text_b64.encode())
-        iv = combined[:12]
-        tag = combined[12:28]
-        ciphertext = combined[28:]
-        decryptor = Cipher(algorithms.AES(key), modes.GCM(iv, tag)).decryptor()
-        return (decryptor.update(ciphertext) + decryptor.finalize()).decode()
-    except Exception:
-        raise ValueError("Decryption failed.")
-
-# --- WEB PAGE CONFIG ---
-st.set_page_config(page_title="Portfolio Pro | Private Tracker", layout="wide")
-
-cookie_manager = stx.CookieManager()
-
+# --- ROBINHOOD THEME CSS ---
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; }
-    div.stButton > button:first-child { background-color: #262730; color: white; border-radius: 6px; border: 1px solid #4a4b50; }
-    div.stButton > button:first-child:hover { background-color: #ff4b4b; border-color: #ff4b4b; }
-    .metric-card { background-color: #161a24; padding: 20px; border-radius: 10px; border-left: 5px solid #00f2fe; margin-bottom: 20px; }
+    .stApp { background-color: #000000; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    .main-price { font-size: 64px; font-weight: 500; letter-spacing: -2px; margin-bottom: 0px; padding-bottom: 0px; }
+    .return-text { font-size: 18px; font-weight: 500; margin-top: -15px; margin-bottom: 20px;}
+    .rh-green { color: #00C805; }
+    .rh-red { color: #FF5000; }
+    .stButton>button { width: 100%; border-radius: 20px; background-color: #1e2124; color: white; border: none; }
+    .stButton>button:hover { border: 1px solid #00C805; color: #00C805; }
+    .asset-row { border-bottom: 1px solid #1e2124; padding: 10px 0; }
+    [data-testid="stSidebar"] { background-color: #0e0f11; }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div style="padding:10px 0px;"><h1 style="color:white;margin-bottom:0;">💼 PORTFOLIO PRO</h1><p style="color:#8a93a6;font-size:14px;margin-top:2px;">Autonomous Client Caching Engine • No Database Server</p></div>', unsafe_allow_html=True)
-st.markdown("---")
+# --- STATE MANAGEMENT (URL BOOKMARKING) ---
+def encode_portfolio(assets):
+    json_str = json.dumps(assets)
+    return base64.b64encode(json_str.encode()).decode()
 
-# Global session variables
-if "assets" not in st.session_state:
-    st.session_state.assets = []
-if "streaming_history" not in st.session_state:
-    st.session_state.streaming_history = []
-
-# --- BACKGROUND AUTOMATION ---
-time.sleep(0.2)  
-cached_enc_data = cookie_manager.get(cookie="secure_portfolio_data")
-cached_key_pass = cookie_manager.get(cookie="secure_portfolio_key")
-
-if cached_enc_data and cached_key_pass and len(st.session_state.assets) == 0:
+def decode_portfolio(encoded_str):
     try:
-        decrypted = decrypt_data(cached_enc_data, cached_key_pass)
-        st.session_state.assets = json.loads(decrypted)
-        st.rerun()
-    except Exception:
-        pass
+        json_str = base64.b64decode(encoded_str.encode()).decode()
+        return json.loads(json_str)
+    except:
+        return []
 
-# --- SIDEBAR INTERFACE ---
-st.sidebar.markdown('<h2 style="margin-top:0;">⚡ Asset Intake</h2>', unsafe_allow_html=True)
-asset_type = st.sidebar.selectbox("Asset Classification", ["Stock", "Crypto"])
-ticker = st.sidebar.text_input("Ticker Label", placeholder="BTC-USD...").upper().strip()
-amount = st.sidebar.number_input("Position Size", min_value=0.0, step=0.01, format="%.6f")
+if "assets" not in st.session_state:
+    # Try to load from URL first
+    if "p" in st.query_params:
+        st.session_state.assets = decode_portfolio(st.query_params["p"])
+    else:
+        st.session_state.assets = []
 
-if st.sidebar.button("➕ Inject into Position"):
-    if ticker and amount > 0:
-        existing_tickers = [a["ticker"] for a in st.session_state.assets]
-        if ticker in existing_tickers:
-            st.sidebar.warning(f"Position for {ticker} already exists!")
-        else:
-            st.session_state.assets.append({"type": asset_type, "ticker": ticker, "holdings": amount})
-            st.sidebar.success(f"Added position for {ticker}")
+def sync_to_url():
+    st.query_params["p"] = encode_portfolio(st.session_state.assets)
+
+# --- SIDEBAR: ASSET INTAKE & UPLOAD ---
+with st.sidebar:
+    st.markdown("### 💼 Manage Portfolio")
+    
+    with st.expander("➕ Add Asset", expanded=True):
+        ticker = st.text_input("Ticker", placeholder="AAPL, BTC-USD").upper().strip()
+        shares = st.number_input("Amount / Shares", min_value=0.0, step=0.01)
+        avg_cost = st.number_input("Average Cost ($)", min_value=0.0, step=0.01)
+        
+        if st.button("Add to Portfolio"):
+            if ticker and shares > 0:
+                # Remove if exists to update
+                st.session_state.assets = [a for a in st.session_state.assets if a['ticker'] != ticker]
+                st.session_state.assets.append({"ticker": ticker, "shares": shares, "cost": avg_cost})
+                sync_to_url()
+                st.rerun()
+
+    st.markdown("---")
+    st.markdown("### 💾 Backup & Restore")
+    st.write("Upload a previously saved `.json` file to restore your portfolio instantly.")
+    
+    uploaded_file = st.file_uploader("Upload Portfolio JSON", type=["json"], label_visibility="collapsed")
+    if uploaded_file is not None:
+        try:
+            st.session_state.assets = json.load(uploaded_file)
+            sync_to_url()
+            st.success("Portfolio Restored!")
+            time.sleep(1)
+            st.rerun()
+        except:
+            st.error("Invalid file.")
+
+    if len(st.session_state.assets) > 0:
+        backup_json = json.dumps(st.session_state.assets)
+        st.download_button(
+            label="⬇️ Download Backup File",
+            data=backup_json,
+            file_name="my_portfolio_backup.json",
+            mime="application/json"
+        )
+        
+        if st.button("🚨 Clear Portfolio"):
+            st.session_state.assets = []
+            st.query_params.clear()
             st.rerun()
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📡 Stream Controls")
-live_stream_active = st.sidebar.toggle("Enable Live Tick Feed", value=True)
-refresh_interval = st.sidebar.slider("Refresh Interval (Seconds)", min_value=5, max_value=60, value=10)
-
-# --- DASHBOARD CALCULATION AND RENDER ---
+# --- MAIN DASHBOARD: THE ROBINHOOD CLONE ---
 if len(st.session_state.assets) == 0:
-    st.info("💡 Your workspace is clean. Use the input on the left to add assets.")
+    st.markdown("<h1 style='text-align:center; margin-top:100px; color:#4a4b50;'>Welcome to Portfolio.</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; color:#8a93a6;'>Use the sidebar to add your assets or upload a backup file.</p>", unsafe_allow_html=True)
+
 else:
-    now = get_chicago_now()
-    updated_data = []
-    total_portfolio_value = 0.0
-    
+    # 1. Fetch Intraday Data to build the daily curve
+    intraday_series = []
+    current_metrics = []
+    total_cost_basis = 0.0
+
     for asset in st.session_state.assets:
-        try:
-            ticker_obj = yf.Ticker(asset["ticker"])
+        tkr = yf.Ticker(asset['ticker'])
+        # Get minute-by-minute data for the day
+        hist = tkr.history(period="1d", interval="1m")
+        
+        if not hist.empty:
+            close_prices = hist['Close'] * asset['shares']
+            intraday_series.append(close_prices)
+            current_price = hist['Close'].iloc[-1]
+            previous_close = hist['Close'].iloc[0] # Roughly today's open/previous close
+        else:
+            # Fallback for illiquid assets
+            current_price = 0
+            previous_close = 0
             
-            # THE FIX: Force a fresh 1-minute interval payload to bypass yfinance caching
-            hist_data = ticker_obj.history(period="1d", interval="1m")
-            
-            if not hist_data.empty:
-                live_price = float(hist_data["Close"].iloc[-1])
-            else:
-                live_price = float(ticker_obj.fast_info['lastPrice'])
-        except Exception:
-            live_price = 0.0
-            
-        total_value = live_price * asset["holdings"]
-        total_portfolio_value += total_value
-        updated_data.append({
-            "Date": now.strftime('%Y-%m-%d %H:%M:%S'),
-            "Type": asset["type"],
-            "Ticker": asset["ticker"],
-            "Holdings": asset["holdings"],
-            "Price ($)": round(live_price, 2) if live_price > 1 else round(live_price, 6),
-            "Total Value ($)": round(total_value, 2)
+        value = current_price * asset['shares']
+        cost = asset['cost'] * asset['shares']
+        total_cost_basis += cost
+        
+        current_metrics.append({
+            "ticker": asset['ticker'],
+            "shares": asset['shares'],
+            "price": current_price,
+            "value": value,
+            "return": value - cost
         })
+
+    # 2. Compile the Portfolio Curve
+    if intraday_series:
+        # Align timestamps and sum
+        portfolio_df = pd.concat(intraday_series, axis=1).ffill().bfill()
+        portfolio_df['Total'] = portfolio_df.sum(axis=1)
         
-    df = pd.DataFrame(updated_data)
-    st.session_state.streaming_history.append({
-        "Timestamp": now.strftime('%H:%M:%S'), 
-        "Total Portfolio Worth ($)": round(total_portfolio_value, 2)
-    })
-    
-    if len(st.session_state.streaming_history) > 100:
-        st.session_state.streaming_history.pop(0)
-
-    st.markdown(f"""
-        <div class="metric-card">
-            <span style="color:#8a93a6; font-size:13px; text-transform:uppercase; font-weight:bold; letter-spacing:1px;">Net Asset Valuation</span>
-            <h1 style="color:white; margin:5px 0 0 0; font-size:38px; font-weight:700;">${total_portfolio_value:,.2f}</h1>
-        </div>
-    """, unsafe_allow_html=True)
-
-    col_dash1, col_dash2 = st.columns([4, 3])
-    with col_dash1:
-        st.markdown('<h4 style="color:white;margin-bottom:15px;">📊 Monitored Allocations</h4>', unsafe_allow_html=True)
-        st.dataframe(df[["Type", "Ticker", "Holdings", "Price ($)", "Total Value ($)"]], use_container_width=True, hide_index=True)
-    
-    with col_dash2:
-        st.markdown('<h4 style="color:white;margin-bottom:0px;">⚙️ Visual Framework</h4>', unsafe_allow_html=True)
-        chart_choice = st.selectbox("Select Visual Template:", ["Live Zero-Delay Tracker", "Donut Chart Breakdown", "Bar Graph Distribution"], label_visibility="collapsed")
-        st.markdown("<br>", unsafe_allow_html=True)
+        current_balance = portfolio_df['Total'].iloc[-1]
+        start_balance = portfolio_df['Total'].iloc[0]
         
-        if chart_choice == "Live Zero-Delay Tracker":
-            fig_stream = px.line(pd.DataFrame(st.session_state.streaming_history), x="Timestamp", y="Total Portfolio Worth ($)", template="plotly_dark")
-            fig_stream.update_traces(line_color="#00f2fe", line_width=4, mode="lines+markers")
+        daily_dollar_change = current_balance - start_balance
+        daily_pct_change = (daily_dollar_change / start_balance) * 100 if start_balance > 0 else 0
+        
+        total_dollar_change = current_balance - total_cost_basis
+        total_pct_change = (total_dollar_change / total_cost_basis) * 100 if total_cost_basis > 0 else 0
+        
+        # Determine Color (Robinhood Green vs Robinhood Red)
+        is_up_today = daily_dollar_change >= 0
+        chart_color = "#00C805" if is_up_today else "#FF5000"
+        sign = "+" if is_up_today else ""
+
+        # 3. Render the Header
+        st.markdown(f'<div class="main-price">${current_balance:,.2f}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="return-text {"rh-green" if is_up_today else "rh-red"}">{sign}${abs(daily_dollar_change):,.2f} ({sign}{daily_pct_change:.2f}%) Today</div>', unsafe_allow_html=True)
+        
+        # 4. Render the Minimalist Plotly Chart
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=portfolio_df.index, 
+            y=portfolio_df['Total'],
+            mode='lines',
+            line=dict(color=chart_color, width=2),
+            fill='tozeroy',
+            fillcolor=f'rgba({0 if is_up_today else 255}, {200 if is_up_today else 80}, {5 if is_up_today else 0}, 0.1)',
+            hoverinfo='y',
+            hovertemplate='$%{y:,.2f}<extra></extra>'
+        ))
+
+        fig.update_layout(
+            margin=dict(l=0, r=0, t=20, b=0),
+            height=300,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False, rangeslider=dict(visible=False)),
+            yaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+            hovermode="x unified"
+        )
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+        # 5. Render Positions List
+        st.markdown("### Positions")
+        for metric in current_metrics:
+            is_pos_up = metric['return'] >= 0
+            pos_color = "#00C805" if is_pos_up else "#FF5000"
+            pos_sign = "+" if is_pos_up else ""
             
-            # THE FIX: Force the Y-Axis to dynamically zoom in on micro-cents so small changes show as huge spikes visually
-            fig_stream.update_yaxes(autorange=True, fixedrange=False)
-            fig_stream.update_layout(margin=dict(l=20, r=20, t=10, b=20), height=250, xaxis_title=None)
-            
-            st.plotly_chart(fig_stream, use_container_width=True)
-            
-        elif chart_choice == "Donut Chart Breakdown":
-            fig = px.pie(df, values="Total Value ($)", names="Ticker", hole=0.4, template="plotly_dark")
-            fig.update_layout(margin=dict(l=20, r=20, t=10, b=20), height=250)
-            st.plotly_chart(fig, use_container_width=True)
-            
-        elif chart_choice == "Bar Graph Distribution":
-            fig_bar = px.bar(df, x="Ticker", y="Total Value ($)", color="Ticker", template="plotly_dark")
-            fig_bar.update_layout(margin=dict(l=20, r=20, t=10, b=20), height=250, showlegend=False)
-            st.plotly_chart(fig_bar, use_container_width=True)
+            col1, col2, col3 = st.columns([2, 2, 2])
+            with col1:
+                st.markdown(f"**{metric['ticker']}**<br><span style='color:#8a93a6; font-size:14px;'>{metric['shares']} Shares</span>", unsafe_allow_html=True)
+            with col2:
+                # Spacing
+                pass
+            with col3:
+                st.markdown(f"<div style='text-align:right;'>**${metric['value']:,.2f}**<br><span style='color:{pos_color}; font-size:14px;'>{pos_sign}${metric['return']:,.2f}</span></div>", unsafe_allow_html=True)
+            st.markdown("<hr style='margin: 0.5em 0; border-color: #1e2124;'>", unsafe_allow_html=True)
 
-    st.markdown("---")
-
-    st.subheader("🔒 Remember Me (Secure Browser Auto-Vault)")
-    col_lock1, col_lock2 = st.columns(2)
-    with col_lock1:
-        vault_password = st.text_input("Create a Master Password to lock down local storage:", type="password", placeholder="Enter password...", key="v_pass")
-    with col_lock2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔒 Securely Save to This Browser", use_container_width=True):
-            if vault_password:
-                raw_json = json.dumps(st.session_state.assets)
-                encrypted_payload = encrypt_data(raw_json, vault_password)
-                cookie_manager.set("secure_portfolio_data", encrypted_payload, key="set_data_widget")
-                cookie_manager.set("secure_portfolio_key", vault_password, key="set_key_widget")
-                st.success("Vault engaged! This browser will now auto-load your portfolio instantly on refresh.")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("Please enter a password to encrypt your storage partition.")
-
-    st.markdown("---")
-
-    st.subheader("🗄️ Local Data Extraction Suite")
-    col_file1, col_file2, col_file3, col_file4 = st.columns(4)
-    with col_file1:
-        st.download_button(label=f"📥 Daily {now.strftime('%Y-%m-%d')}.csv", data=df.to_csv(index=False).encode('utf-8'), file_name=f"investment_history_{now.strftime('%Y-%m-%d')}.csv", mime="text/csv")
-    with col_file2:
-        st.download_button(label=f"📥 Weekly Summary.csv", data=df.groupby(["Type"])["Total Value ($)"].sum().reset_index().to_csv(index=False).encode('utf-8'), file_name="weekly_summary.csv", mime="text/csv")
-    with col_file3:
-        st.download_button(label=f"📥 Monthly Summary.csv", data=df.groupby(["Type"])["Total Value ($)"].sum().reset_index().to_csv(index=False).encode('utf-8'), file_name="monthly_summary.csv", mime="text/csv")
-    with col_file4:
-        st.download_button(label=f"📥 Yearly Summary.csv", data=df.groupby(["Type"])["Total Value ($)"].sum().reset_index().to_csv(index=False).encode('utf-8'), file_name="yearly_summary.csv", mime="text/csv")
-
-    st.markdown("---")
-    
-    if st.button("🔴 Purge and Log Out of This Browser Session", use_container_width=True):
-        cookie_manager.delete("secure_portfolio_data", key="del_data_widget")
-        cookie_manager.delete("secure_portfolio_key", key="del_key_widget")
-        st.session_state.assets = []
-        st.session_state.streaming_history = []
-        st.success("Browser storage successfully deleted!")
-        time.sleep(1)
-        st.rerun()
-
-    if live_stream_active:
-        time.sleep(refresh_interval)
-        st.rerun()
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.info("💡 **How to Auto-Remember:** Your portfolio is securely encoded in the URL address bar above. **Bookmark this page right now.** Whenever you click that bookmark, your portfolio loads instantly.")
