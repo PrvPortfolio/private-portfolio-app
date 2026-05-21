@@ -1,6 +1,5 @@
 streamlit
 yfinance
 pandas
-cryptography
 plotly
-extra-streamlit-components
+streamlit-autorefresh
