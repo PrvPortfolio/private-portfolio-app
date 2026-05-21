@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -520,4 +519,3 @@ else:
         st.info(
             "💡 Bookmark this page to auto-remember your portfolio."
         )
-```
