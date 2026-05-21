@@ -3,9 +3,16 @@ import pandas as pd
 import yfinance as yf
 import json
 import base64
+from datetime import datetime
+import pytz
+import plotly.express as px
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
+
+# --- TIMEZONE CONFIG ---
+def get_chicago_now():
+    return datetime.now(pytz.timezone('America/Chicago'))
 
 # --- CRYPTOGRAPHY FUNCTIONS ---
 def generate_key(password: str, salt: bytes) -> bytes:
@@ -40,62 +47,77 @@ def decrypt_data(cipher_text_b64: str, password: str) -> str:
     except Exception:
         raise ValueError("Incorrect password or corrupted file.")
 
-# --- WEB PAGE INTERFACE CONFIG ---
-st.set_page_config(page_title="Zero-Knowledge Portfolio Tracker", layout="wide")
+# --- WEB PAGE CONFIG ---
+st.set_page_config(page_title="Portfolio Pro | Private Tracker", layout="wide", initial_sidebar_state="expanded")
 
-st.title("🛡️ Zero-Knowledge Portfolio Tracker")
-st.caption("Purely client-side tracking. Your financial data never leaves your device.")
+# Inject Custom CSS for a professional, clean UI appearance
+st.markdown("""
+    <style>
+    .main { background-color: #0e1117; }
+    div.stButton > button:first-child {
+        background-color: #262730; color: white; border-radius: 6px; border: 1px solid #4a4b50;
+    }
+    div.stButton > button:first-child:hover { background-color: #ff4b4b; border-color: #ff4b4b; }
+    .metric-card {
+        background-color: #161a24; padding: 20px; border-radius: 10px; 
+        border-left: 5px solid #00f2fe; margin-bottom: 20px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Main Title Header Banner
+st.markdown('<div style="padding:10px 0px;"><h1 style="color:white;margin-bottom:0;">💼 PORTFOLIO PRO</h1><p style="color:#8a93a6;font-size:14px;margin-top:2px;">Enterprise Privacy Core • Automated Local Archiving</p></div>', unsafe_allow_html=True)
 st.markdown("---")
 
 if "assets" not in st.session_state:
     st.session_state.assets = []
 
-# --- SECURE FILE UPLOAD BOX ---
-st.subheader("🔓 Load an Existing Portfolio")
-uploaded_file = st.file_uploader("Upload your saved 'portfolio.enc' file:", type=["enc"])
-import_password = st.text_input("Enter the File Password to Unlock", type="password", key="import_pass")
+# --- TOP PANEL: FILE INTAKE LINK ---
+with st.expander("🔓 Load Existing Profile Session (.enc)", expanded=False):
+    col_up1, col_up2 = st.columns(2)
+    with col_up1:
+        uploaded_file = st.file_uploader("Drop your encrypted backup here:", type=["enc"], label_visibility="collapsed")
+    with col_up2:
+        import_password = st.text_input("Enter secure file password:", type="password", placeholder="Password...")
+    
+    if uploaded_file and import_password:
+        if st.button("🔓 Restore Session"):
+            try:
+                file_contents = uploaded_file.read().decode()
+                decrypted_json_string = decrypt_data(file_contents, import_password)
+                st.session_state.assets = json.loads(decrypted_json_string)
+                st.success("Session state successfully restored in-memory.")
+                st.rerun()
+            except ValueError as e:
+                st.error(f"Failed to access profile: {e}")
 
-if uploaded_file and import_password:
-    if st.button("🔓 Decrypt & Load Data"):
-        try:
-            file_contents = uploaded_file.read().decode()
-            decrypted_json_string = decrypt_data(file_contents, import_password)
-            st.session_state.assets = json.loads(decrypted_json_string)
-            st.success("Success! Portfolio decrypted and loaded safely in-memory.")
-            st.rerun()
-        except ValueError as e:
-            st.error(f"❌ Decryption Failed: {e}")
+# --- SIDEBAR CONTROL UNIT ---
+st.sidebar.markdown('<h2 style="margin-top:0;">⚡ Asset Intake</h2>', unsafe_allow_html=True)
+asset_type = st.sidebar.selectbox("Asset Classification", ["Stock", "Crypto"])
+ticker = st.sidebar.text_input("Ticker Label (e.g., TSLA, BTC-USD)", placeholder="NVDA...").upper().strip()
+amount = st.sidebar.number_input("Current Position Size", min_value=0.0, step=0.01, format="%.6f")
 
-st.markdown("---")
-
-# --- SIDEBAR: ADD ASSETS MANUALLY ---
-st.sidebar.header("Add to Portfolio")
-asset_type = st.sidebar.selectbox("Asset Type", ["Stock", "Crypto"])
-ticker = st.sidebar.text_input("Ticker Symbol (e.g., TSLA, ETH-USD)").upper().strip()
-amount = st.sidebar.number_input("Amount Owned / Holdings", min_value=0.0, step=0.1)
-
-if st.sidebar.button("Add Asset"):
+if st.sidebar.button("➕ Inject into Position"):
     if ticker and amount > 0:
         existing_tickers = [a["ticker"] for a in st.session_state.assets]
         if ticker in existing_tickers:
-            st.sidebar.warning(f"{ticker} is already in your portfolio!")
+            st.sidebar.warning(f"Position for {ticker} already exists!")
         else:
             st.session_state.assets.append({"type": asset_type, "ticker": ticker, "holdings": amount})
-            st.sidebar.success(f"Added {amount} {ticker}!")
+            st.sidebar.success(f"Added position for {ticker}")
             st.rerun()
     else:
-        st.sidebar.error("Please enter a valid ticker and amount.")
+        st.sidebar.error("Invalid entry criteria.")
 
-# --- MAIN DASHBOARD VIEW ---
+# --- DASHBOARD SYSTEM PRESENTATION ---
 if len(st.session_state.assets) == 0:
-    st.info("💡 Your dashboard is empty. Either upload your encrypted data profile above or add a new asset in the sidebar to begin.")
+    st.info("💡 Application memory is unallocated. Restore an existing profile session above or input custom positions via the sidebar to initialize visual grids.")
 else:
-    st.subheader("Your Live Dashboard")
-    
+    now = get_chicago_now()
     updated_data = []
     total_portfolio_value = 0.0
     
-    with st.spinner("Fetching live market prices..."):
+    with st.spinner("Streaming premium financial metrics from API nodes..."):
         for asset in st.session_state.assets:
             try:
                 ticker_data = yf.Ticker(asset["ticker"])
@@ -107,43 +129,115 @@ else:
             total_portfolio_value += total_value
             
             updated_data.append({
+                "Date": now.strftime('%Y-%m-%d %H:%M'),
                 "Type": asset["type"],
                 "Ticker": asset["ticker"],
                 "Holdings": asset["holdings"],
-                "Live Price ($)": round(live_price, 2) if live_price > 1 else round(live_price, 6),
+                "Price ($)": round(live_price, 2) if live_price > 1 else round(live_price, 6),
                 "Total Value ($)": round(total_value, 2)
             })
             
-    # Visual Metrics Row
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.metric(label="Total Portfolio Net Worth", value=f"${total_portfolio_value:,.2f}")
-        df = pd.DataFrame(updated_data)
-        st.dataframe(df, use_container_width=True)
+    df = pd.DataFrame(updated_data)
+
+    # 1. VISUAL METRIC BOX
+    st.markdown(f"""
+        <div class="metric-card">
+            <span style="color:#8a93a6; font-size:13px; text-transform:uppercase; font-weight:bold; letter-spacing:1px;">Net Asset Valuation</span>
+            <h1 style="color:white; margin:5px 0 0 0; font-size:38px; font-weight:700;">${total_portfolio_value:,.2f}</h1>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # 2. COLUMNS FOR VISUAL BALANCING (Table left, Chart right)
+    col_dash1, col_dash2 = st.columns([4, 3])
     
-    with col2:
-        # Visual Chart Segment
-        st.subheader("📊 Asset Allocation Breakdowns")
-        st.bar_chart(data=df, x="Ticker", y="Total Value ($)", use_container_width=True)
+    with col_dash1:
+        st.markdown('<h4 style="color:white;margin-bottom:15px;">📊 Monitored Allocations</h4>', unsafe_allow_html=True)
+        st.dataframe(df[["Type", "Ticker", "Holdings", "Price ($)", "Total Value ($)"]], use_container_width=True, hide_index=True)
     
+    with col_dash2:
+        st.markdown('<h4 style="color:white;margin-bottom:15px;">🥧 Allocation Breakdown</h4>', unsafe_allow_html=True)
+        fig = px.pie(df, values="Total Value ($)", names="Ticker", hole=0.4, template="plotly_dark")
+        fig.update_layout(margin=dict(l=20, r=20, t=20, b=20), height=260, showlegend=True)
+        st.plotly_chart(fig, use_container_width=True)
+
     st.markdown("---")
+
+    # 3. NEW COMPONENT: GRANULAR DATA ARCHIVING SUITE
+    st.subheader("🗄️ Local Data Extraction Suite")
+    st.write("Generate and download segmented timeline snapshot files directly to your machine storage array.")
     
-    # --- SECURE DATA EXPORT BOX ---
-    st.subheader("🔒 Secure Data Export")
-    export_password = st.text_input("Create a File Encryption Password", type="password", key="export_pass")
+    col_file1, col_file2, col_file3, col_file4 = st.columns(4)
     
-    if export_password:
-        raw_portfolio_json = json.dumps(st.session_state.assets)
-        encrypted_string = encrypt_data(raw_portfolio_json, export_password)
-        
+    with col_file1:
+        st.info("**📅 Daily History File**")
+        daily_csv = df.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="⬇️ Download Encrypted Portfolio File (.enc)",
-            data=encrypted_string,
-            file_name="portfolio.enc",
-            mime="text/plain"
+            label=f"📥 Download {now.strftime('%Y-%m-%d')}.csv",
+            data=daily_csv,
+            file_name=f"investment_history_{now.strftime('%Y-%m-%d')}.csv",
+            mime="text/csv",
+            key="dl_daily"
         )
-        st.success("🔒 Portfolio encrypted! Click the download button to save your backup.")
         
-    if st.button("🔴 Clear Active Session"):
-        st.session_state.assets = []
-        st.rerun()
+    with col_file2:
+        st.info("**🗓️ Weekly Summary**")
+        current_week = now.strftime('%Y-W%U')
+        df_weekly = df.groupby(["Type"])["Total Value ($)"].sum().reset_index()
+        weekly_csv = df_weekly.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label=f"📥 Download {current_week}.csv",
+            data=weekly_csv,
+            file_name=f"weekly_summary_{current_week}.csv",
+            mime="text/csv",
+            key="dl_weekly"
+        )
+        
+    with col_file3:
+        st.info("**🗂️ Monthly Summary**")
+        current_month = now.strftime('%Y-%m')
+        df_monthly = df.groupby(["Type"])["Total Value ($)"].sum().reset_index()
+        monthly_csv = df_monthly.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label=f"📥 Download {current_month}.csv",
+            data=monthly_csv,
+            file_name=f"monthly_summary_{current_month}.csv",
+            mime="text/csv",
+            key="dl_monthly"
+        )
+        
+    with col_file4:
+        st.info("**🏛️ Yearly Macro Summary**")
+        current_year = now.strftime('%Y')
+        df_yearly = df.groupby(["Type"])["Total Value ($)"].sum().reset_index()
+        yearly_csv = df_yearly.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label=f"📥 Download {current_year}.csv",
+            data=yearly_csv,
+            file_name=f"yearly_summary_{current_year}.csv",
+            mime="text/csv",
+            key="dl_yearly"
+        )
+
+    st.markdown("---")
+
+    # 4. ENCRYPTED SYSTEM KEY BACKUP
+    st.subheader("🔒 Secure Profile Encryption Profile")
+    export_password = st.text_input("Deploy master passphrase to scramble profile structure:", type="password", placeholder="Passphrase...")
+    
+    col_ex1, col_ex2 = st.columns([3, 1])
+    with col_ex1:
+        if export_password:
+            raw_portfolio_json = json.dumps(st.session_state.assets)
+            encrypted_string = encrypt_data(raw_portfolio_json, export_password)
+            
+            st.download_button(
+                label="🔒 Download Encrypted Profile Key (.enc)",
+                data=encrypted_string,
+                file_name="portfolio.enc",
+                mime="text/plain",
+                use_container_width=True
+            )
+    with col_ex2:
+        if st.button("🔴 Purge Local Memory", use_container_width=True):
+            st.session_state.assets = []
+            st.rerun()
