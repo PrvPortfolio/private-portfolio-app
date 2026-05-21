@@ -77,7 +77,7 @@ rate = conversion_rates[currency]
 # THEME COLORS
 # -----------------------------------
 
-if theme == "Dark":
+if theme = "Dark":
 bg_color = "#181A20"
 text_color = "#EDEDED"
 sidebar_color = "#22252B"
