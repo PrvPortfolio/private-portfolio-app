@@ -44,15 +44,11 @@ def decrypt_data(cipher_text_b64: str, password: str) -> str:
     except Exception:
         raise ValueError("Decryption failed.")
 
-# --- APP LAYOUT ---
+# --- WEB PAGE CONFIG ---
 st.set_page_config(page_title="Portfolio Pro | Private Tracker", layout="wide")
 
-# Initialize the stable cookie/local storage manager
-@st.cache_resource
-def get_cookie_manager():
-    return stx.CookieManager()
-
-cookie_manager = get_cookie_manager()
+# Correct non-cached instantiation to clear CachedWidgetWarning
+cookie_manager = stx.CookieManager()
 
 st.markdown("""
     <style>
@@ -73,8 +69,7 @@ if "streaming_history" not in st.session_state:
     st.session_state.streaming_history = []
 
 # --- BACKGROUND AUTOMATION: AUTOMATIC LOGIN RECOVERY ---
-# Wait a fraction of a second for the cookie manager to ready itself
-time.sleep(0.2)
+time.sleep(0.2)  # Yield brief window for client handshake initialization
 cached_enc_data = cookie_manager.get(cookie="secure_portfolio_data")
 cached_key_pass = cookie_manager.get(cookie="secure_portfolio_key")
 
@@ -200,7 +195,7 @@ else:
                 raw_json = json.dumps(st.session_state.assets)
                 encrypted_payload = encrypt_data(raw_json, vault_password)
                 
-                # Push the encrypted payloads natively into the browser cookie storage bank
+                # Direct safe injection to browser storage cookies
                 cookie_manager.set("secure_portfolio_data", encrypted_payload)
                 cookie_manager.set("secure_portfolio_key", vault_password)
                 st.success("Vault engaged! This browser will now auto-load your portfolio instantly on refresh.")
