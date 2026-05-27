@@ -26,7 +26,7 @@ if "timeframe" not in st.session_state: st.session_state.timeframe = "1D"
 def sync_to_url():
     st.query_params["p"] = base64.b64encode(json.dumps(st.session_state.assets).encode()).decode()
 
-# --- LOCKED DAY MODE THEMING WITH DEVICE DARK-MODE DETECTOR (CSS) ---
+# --- HARDENED DAY MODE THEME ENGINE (CSS) ---
 st.markdown("""
     <style>
     /* Global Day Mode Canvas */
@@ -38,10 +38,27 @@ st.markdown("""
     [data-testid="stSidebar"] { background-color: #f8f9fa; border-right: 1px solid #e5e5ea; }
     .asset-row { border-bottom: 1px solid #e5e5ea; padding: 10px 0; color: #000000; }
     
-    /* Extreme Visibility Settings for Intake Form Boxes */
-    div[data-testid="stForm"] { background-color: #ffffff; border: 1px solid #a1a1a6; border-radius: 12px; padding: 15px; }
+    /* Force Typography to stay dark */
+    p, span, label, h3, h2, h1 { color: #000000 !important; }
+
+    /* --- ANTI-BLACK-BOX BUTTON PROTECTION --- */
+    /* This overrides system dark mode and prevents secondary buttons from turning into black rectangles */
+    button[data-testid="baseButton-secondary"] {
+        background-color: #f1f3f5 !important;
+        color: #000000 !important;
+        border: 1px solid #cbd5e1 !important;
+    }
+    button[data-testid="baseButton-secondary"]:hover {
+        background-color: #e2e8f0 !important;
+        color: #000000 !important;
+        border-color: #94a3b8 !important;
+    }
+    button[data-testid="baseButton-primary"] {
+        color: #ffffff !important;
+    }
     
-    /* Target all Text, Number, and Dropdown search fields inside the Intake Form */
+    /* Intake Form Field Controls */
+    div[data-testid="stForm"] { background-color: #ffffff; border: 1px solid #a1a1a6; border-radius: 12px; padding: 15px; }
     div[data-testid="stForm"] input, 
     div[data-testid="stForm"] div[data-baseweb="select"] {
         background-color: #ffffff !important;
@@ -50,21 +67,18 @@ st.markdown("""
         border-radius: 8px !important;
         font-weight: 600 !important;
     }
-    
     div[data-testid="stForm"] div[data-baseweb="select"] span,
     div[data-testid="stForm"] div[data-baseweb="select"] div {
         color: #000000 !important;
-        font-weight: 600 !important;
     }
     
-    p, span, label, h3 { color: #000000 !important; }
+    /* Dropdown Selection Overlay Protection */
+    div[data-baseweb="popover"] ul { background-color: #ffffff !important; }
+    div[data-baseweb="popover"] li { color: #000000 !important; font-weight: 500; }
 
-    /* --- DEVICE DARK-MODE ACCESSIBILITY OVERRIDES --- */
+    /* --- DEVICE DARK-MODE HEADER ICON OVERRIDES --- */
     @media (prefers-color-scheme: dark) {
-        /* Force container header background to align with system constraints */
         [data-testid="stHeader"] { background-color: #0e0f11 !important; }
-        
-        /* Force the Top-Right Main Menu Button & Icons to shine crisp White */
         [data-testid="stHeader"] button,
         [data-testid="stHeader"] svg,
         #MainMenu,
