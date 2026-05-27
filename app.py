@@ -43,24 +43,20 @@ st.markdown("""
     p, span, label, h3, h2, h1, div { color: #000000; }
 
     /* 3. UNCOMPROMISING BUTTON RULES - Overrides all device-level themes */
-    /* Target secondary/unselected buttons */
     button[data-testid="baseButton-secondary"], button {
         background-color: #f1f3f5 !important;
         color: #000000 !important;
         border: 1px solid #cbd5e1 !important;
     }
-    /* Guarantee inner text layer stays deep black */
     button[data-testid="baseButton-secondary"] span, button[data-testid="baseButton-secondary"] p, button span {
         color: #000000 !important;
     }
     
-    /* Target primary/selected active timeframe button */
     button[data-testid="baseButton-primary"] {
         background-color: #000000 !important;
         color: #ffffff !important;
         border: 1px solid #000000 !important;
     }
-    /* Guarantee selected text layer stays bright white */
     button[data-testid="baseButton-primary"] span, button[data-testid="baseButton-primary"] p {
         color: #ffffff !important;
     }
@@ -170,15 +166,26 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 💾 Core Backup Storage")
     uploaded_file = st.file_uploader("Upload JSON Manifest", type=["json"], label_visibility="collapsed")
+    
+    rerun_needed = False
     if uploaded_file is not None:
         try:
-            st.session_state.assets = json.load(uploaded_file)
+            data = json.load(uploaded_file)
+            # Safe structural extraction fallback
+            if isinstance(data, dict) and "assets" in data:
+                st.session_state.assets = data["assets"]
+            else:
+                st.session_state.assets = data
+                
             sync_to_url()
             st.success("State Restored Successfully!")
             time.sleep(0.5)
-            st.rerun()
+            rerun_needed = True
         except:
             st.error("Corrupted architecture file.")
+            
+    if rerun_needed:
+        st.rerun()
 
     if not Pis_empty:
         st.download_button("⬇️ Export Structural Backup", data=json.dumps(st.session_state.assets), file_name="portfolio_backup.json", mime="application/json", use_container_width=True)
