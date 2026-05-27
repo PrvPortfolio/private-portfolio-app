@@ -26,10 +26,10 @@ if "timeframe" not in st.session_state: st.session_state.timeframe = "1D"
 def sync_to_url():
     st.query_params["p"] = base64.b64encode(json.dumps(st.session_state.assets).encode()).decode()
 
-# --- LOCKED DAY MODE THEMING WITH HIGH-CONTRAST INPUTS (CSS) ---
+# --- LOCKED DAY MODE THEMING WITH DEVICE DARK-MODE DETECTOR (CSS) ---
 st.markdown("""
     <style>
-    /* Global Canvas */
+    /* Global Day Mode Canvas */
     .stApp { background-color: #ffffff; color: #000000; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
     .main-price { font-size: 64px; font-weight: 500; letter-spacing: -2px; margin-bottom: 0px; padding-bottom: 0px; color: #000000; }
     .return-text { font-size: 18px; font-weight: 500; margin-top: -15px; margin-bottom: 20px; }
@@ -51,7 +51,6 @@ st.markdown("""
         font-weight: 600 !important;
     }
     
-    /* Ensure drop-down selections inside the search block show solid black text */
     div[data-testid="stForm"] div[data-baseweb="select"] span,
     div[data-testid="stForm"] div[data-baseweb="select"] div {
         color: #000000 !important;
@@ -59,6 +58,23 @@ st.markdown("""
     }
     
     p, span, label, h3 { color: #000000 !important; }
+
+    /* --- DEVICE DARK-MODE ACCESSIBILITY OVERRIDES --- */
+    @media (prefers-color-scheme: dark) {
+        /* Force container header background to align with system constraints */
+        [data-testid="stHeader"] { background-color: #0e0f11 !important; }
+        
+        /* Force the Top-Right Main Menu Button & Icons to shine crisp White */
+        [data-testid="stHeader"] button,
+        [data-testid="stHeader"] svg,
+        #MainMenu,
+        #MainMenu svg,
+        button[aria-label="User Menu"],
+        [data-testid="stSidebarCollapseButton"] button svg {
+            color: #ffffff !important;
+            fill: #ffffff !important;
+        }
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -94,16 +110,13 @@ with st.sidebar:
     
     st.markdown("### ➕ Add Asset Intake")
     with st.form("add_asset_form", clear_on_submit=True):
-        # 1. Search Suggestions Box
         suggestion_select = st.selectbox("Search Suggestions", TICKER_SUGGESTIONS, index=0)
         
-        # Determine autofill value based on suggestion selection
         if suggestion_select != "--- Select a Suggestion Below ---":
             autofill_value = suggestion_select.split(" ")[0]
         else:
             autofill_value = ""
             
-        # 2. High-Contrast Manual Input / Confirmation Box
         ticker = st.text_input("Ticker Confirmation", value=autofill_value, placeholder="e.g. AAPL, VOO, BTC-USD").upper().strip()
         shares = st.number_input("Share Quantity", min_value=0.0, step=0.01)
         avg_cost = st.number_input(f"Average Cost ({curr_sym})", min_value=0.0, step=0.01)
@@ -154,7 +167,6 @@ if Pis_empty:
     st.markdown("<p style='text-align:center; color:#6c757d;'>Engine idle. Use the configuration matrix in the sidebar to seed asset layers.</p>", unsafe_allow_html=True)
 
 else:
-    # Timeframe Selector Mapping Config
     tf_map = {
         "Live": ("1d", "1m"),
         "1D": ("1d", "2m"),
@@ -176,7 +188,6 @@ else:
     current_metrics = []
     total_cost_basis = 0.0
 
-    # Live Data Fetch Loop
     for asset in st.session_state.assets:
         tkr = yf.Ticker(asset['ticker'])
         hist = tkr.history(period=yf_period, interval=yf_interval)
@@ -214,11 +225,9 @@ else:
         chart_color = "#00C805" if is_up_today else "#FF5000"
         sign = "+" if is_up_today else ""
 
-        # Main Performance Header
         st.markdown(f'<div class="main-price">{curr_sym}{current_balance:,.2f}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="return-text {"rh-green" if is_up_today else "rh-red"}">{sign}{curr_sym}{abs(delta_dollar_change):,.2f} ({sign}{delta_pct_change:.2f}%) Tracking ({st.session_state.timeframe})</div>', unsafe_allow_html=True)
         
-        # High-Fidelity Interactive Graph
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=portfolio_df.index, 
@@ -241,7 +250,6 @@ else:
         )
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-        # Asset Breakdown
         st.markdown(f"### Asset Holdings Breakdown")
         for metric in current_metrics:
             is_pos_up = metric['return'] >= 0
@@ -263,7 +271,7 @@ else:
 
         # --- DATA ARCHIVING ARCHITECTURE ---
         st.markdown("<br>### 📥 Compliance Data Extraction Suite", unsafe_allow_html=True)
-        st.write("Extract your portfolio history matrix compiled across target intervals.")
+        st.write("Extract your portfolio history matrix compiled cleanly across target intervals.")
         
         csv_df = portfolio_df[['Total']].reset_index()
         csv_df.columns = ['Timestamp', f'Portfolio Value ({st.session_state.currency})']
@@ -283,6 +291,6 @@ else:
             st.download_button(label="🏛️ Annual Yield", data=csv_df.iloc[::250 if len(csv_df) > 250 else 1].to_csv(index=False).encode('utf-8'), 
                                file_name="annual_valuation_report.csv", mime="text/csv", use_container_width=True)
 
-    # 1-Second Continuous Execution Loop Refresh Trigger
+    # 1-Second Continuous Refresh
     time.sleep(1)
     st.rerun()
