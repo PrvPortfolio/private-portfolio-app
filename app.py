@@ -1,310 +1,185 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
-import plotly.graph_objects as go
+import yfinance as yf
 import json
 import base64
-import time
-from datetime import datetime
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
 
-# --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Portfolio Tracker", layout="centered", initial_sidebar_state="expanded")
+# --- CRYPTOGRAPHY FUNCTIONS ---
+def generate_key(password: str, salt: bytes) -> bytes:
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+    )
+    return kdf.derive(password.encode())
 
-# --- INITIALIZE STATE ---
-if "assets" not in st.session_state:
-    if "p" in st.query_params:
-        try:
-            st.session_state.assets = json.loads(base64.b64decode(st.query_params["p"].encode()).decode())
-        except:
-            st.session_state.assets = []
-    else:
-        st.session_state.assets = []
+def encrypt_data(plain_text: str, password: str) -> str:
+    salt = b"StaticSaltForLocalApp"
+    key = generate_key(password, salt)
+    import os
+    iv = os.urandom(12)
+    encryptor = Cipher(algorithms.AES(key), modes.GCM(iv)).encryptor()
+    ciphertext = encryptor.update(plain_text.encode()) + encryptor.finalize()
+    combined = iv + encryptor.tag + ciphertext
+    return base64.b64encode(combined).decode()
 
-if "currency" not in st.session_state: st.session_state.currency = "USD"
-if "timeframe" not in st.session_state: st.session_state.timeframe = "1D"
+def decrypt_data(cipher_text_b64: str, password: str) -> str:
+    try:
+        salt = b"StaticSaltForLocalApp"
+        key = generate_key(password, salt)
+        combined = base64.b64decode(cipher_text_b64.encode())
+        iv = combined[:12]
+        tag = combined[12:28]
+        ciphertext = combined[28:]
+        decryptor = Cipher(algorithms.AES(key), modes.GCM(iv, tag)).decryptor()
+        return (decryptor.update(ciphertext) + decryptor.finalize()).decode()
+    except Exception:
+        raise ValueError("Incorrect password or corrupted file.")
 
-def sync_to_url():
-    st.query_params["p"] = base64.b64encode(json.dumps(st.session_state.assets).encode()).decode()
+# --- WEB PAGE INTERFACE CONFIG ---
+st.set_page_config(page_title="Zero-Knowledge Portfolio Tracker", layout="wide")
 
-# --- HARDENED DAY MODE THEME ENGINE (CSS) ---
-st.markdown("""
+st.markdown(
+    """
     <style>
-    /* Global Day Mode Canvas */
-    .stApp { background-color: #ffffff; color: #000000; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
-    .main-price { font-size: 64px; font-weight: 500; letter-spacing: -2px; margin-bottom: 0px; padding-bottom: 0px; color: #000000; }
-    .return-text { font-size: 18px; font-weight: 500; margin-top: -15px; margin-bottom: 20px; }
-    .rh-green { color: #00C805; }
-    .rh-red { color: #FF5000; }
-    [data-testid="stSidebar"] { background-color: #f8f9fa; border-right: 1px solid #e5e5ea; }
-    .asset-row { border-bottom: 1px solid #e5e5ea; padding: 10px 0; color: #000000; }
-    
-    /* Force Typography to stay dark */
-    p, span, label, h3, h2, h1 { color: #000000 !important; }
+    :root {
+        color-scheme: light !important;
+    }
 
-    /* --- ANTI-BLACK-BOX BUTTON PROTECTION --- */
-    /* This overrides system dark mode and prevents secondary buttons from turning into black rectangles */
-    button[data-testid="baseButton-secondary"] {
-        background-color: #f1f3f5 !important;
-        color: #000000 !important;
-        border: 1px solid #cbd5e1 !important;
-    }
-    button[data-testid="baseButton-secondary"]:hover {
-        background-color: #e2e8f0 !important;
-        color: #000000 !important;
-        border-color: #94a3b8 !important;
-    }
-    button[data-testid="baseButton-primary"] {
-        color: #ffffff !important;
-    }
-    
-    /* Intake Form Field Controls */
-    div[data-testid="stForm"] { background-color: #ffffff; border: 1px solid #a1a1a6; border-radius: 12px; padding: 15px; }
-    div[data-testid="stForm"] input, 
-    div[data-testid="stForm"] div[data-baseweb="select"] {
+    html, body, [data-testid="stAppViewContainer"] {
         background-color: #ffffff !important;
-        color: #000000 !important;
-        border: 2px solid #000000 !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-    }
-    div[data-testid="stForm"] div[data-baseweb="select"] span,
-    div[data-testid="stForm"] div[data-baseweb="select"] div {
-        color: #000000 !important;
-    }
-    
-    /* Dropdown Selection Overlay Protection */
-    div[data-baseweb="popover"] ul { background-color: #ffffff !important; }
-    div[data-baseweb="popover"] li { color: #000000 !important; font-weight: 500; }
-
-    /* --- DEVICE DARK-MODE HEADER ICON OVERRIDES --- */
-    @media (prefers-color-scheme: dark) {
-        [data-testid="stHeader"] { background-color: #0e0f11 !important; }
-        [data-testid="stHeader"] button,
-        [data-testid="stHeader"] svg,
-        #MainMenu,
-        #MainMenu svg,
-        button[aria-label="User Menu"],
-        [data-testid="stSidebarCollapseButton"] button svg {
-            color: #ffffff !important;
-            fill: #ffffff !important;
-        }
+        color: #0f1115 !important;
     }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-# --- FX RATE CONVERTER ---
-@st.cache_data(ttl=60)
-def get_fx_rate(target_currency):
-    if target_currency == "USD": return 1.0
-    try:
-        fx = yf.Ticker(f"USD{target_currency}=X").history(period="1d")
-        return float(fx['Close'].iloc[-1])
-    except:
-        return 1.0
+st.title("🛡️ Zero-Knowledge Portfolio Tracker")
+st.caption("Purely client-side tracking. Your financial data never leaves your device.")
+st.markdown("---")
 
-fx_rate = get_fx_rate(st.session_state.currency)
-curr_sym = {"USD": "$", "EUR": "€", "GBP": "£"}[st.session_state.currency]
+if "assets" not in st.session_state:
+    st.session_state.assets = []
 
-# --- STOCK & CRYPTO SEARCH SUGGESTIONS LIBRARY ---
-TICKER_SUGGESTIONS = [
-    "--- Select a Suggestion Below ---",
-    "AAPL (Apple)", "MSFT (Microsoft)", "NVDA (NVIDIA)", "TSLA (Tesla)", 
-    "AMZN (Amazon)", "GOOGL (Alphabet)", "META (Meta Platforms)", "NFLX (Netflix)", 
-    "AMD (Advanced Micro Devices)", "PLTR (Palantir)", "COIN (Coinbase)", "HOOD (Robinhood)",
-    "VOO (S&P 500 ETF)", "SPY (S&P 500 ETF)", "QQQ (Nasdaq 100)", "IWM (Russell 2000)",
-    "BTC-USD (Bitcoin)", "ETH-USD (Ethereum)", "SOL-USD (Solana)", "DOGE-USD (Dogecoin)",
-    "XRP-USD (Ripple)", "ADA-USD (Cardano)", "DIS (Disney)", "NKE (Nike)", "GME (GameStop)"
+# --- SECURE FILE UPLOAD BOX ---
+st.subheader("🔓 Load an Existing Portfolio")
+uploaded_file = st.file_uploader("Upload your saved 'portfolio.enc' file:", type=["enc"])
+import_password = st.text_input("Enter the File Password to Unlock", type="password", key="import_pass")
+
+if uploaded_file and import_password:
+    if st.button("🔓 Decrypt & Load Data"):
+        try:
+            file_contents = uploaded_file.read().decode()
+            decrypted_json_string = decrypt_data(file_contents, import_password)
+            st.session_state.assets = json.loads(decrypted_json_string)
+            st.success("Success! Portfolio decrypted and loaded safely in-memory.")
+            st.rerun()
+        except ValueError as e:
+            st.error(f"❌ Decryption Failed: {e}")
+
+st.markdown("---")
+
+# --- SIDEBAR: ADD ASSETS MANUALLY ---
+st.sidebar.header("Add to Portfolio")
+asset_type = st.sidebar.selectbox("Asset Type", ["Stock", "Crypto"])
+ticker_query = st.sidebar.text_input("Ticker Symbol (e.g., TSLA, ETH-USD)")
+ticker = ticker_query.upper().strip()
+amount = st.sidebar.number_input("Amount Owned / Holdings", min_value=0.0, step=0.1)
+
+COMMON_TICKERS = [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META",
+    "BTC-USD", "ETH-USD", "SOL-USD", "ADA-USD", "DOGE-USD",
+    "NFLX", "INTC", "AMD", "SPY", "QQQ"
 ]
 
-# --- SIDEBAR CONTROL PANEL ---
-with st.sidebar:
-    st.markdown("### ⚙️ Global Controls")
-    st.session_state.currency = st.selectbox("Base Currency", ["USD", "EUR", "GBP"])
-    st.markdown("---")
-    
-    st.markdown("### ➕ Add Asset Intake")
-    with st.form("add_asset_form", clear_on_submit=True):
-        suggestion_select = st.selectbox("Search Suggestions", TICKER_SUGGESTIONS, index=0)
-        
-        if suggestion_select != "--- Select a Suggestion Below ---":
-            autofill_value = suggestion_select.split(" ")[0]
-        else:
-            autofill_value = ""
-            
-        ticker = st.text_input("Ticker Confirmation", value=autofill_value, placeholder="e.g. AAPL, VOO, BTC-USD").upper().strip()
-        shares = st.number_input("Share Quantity", min_value=0.0, step=0.01)
-        avg_cost = st.number_input(f"Average Cost ({curr_sym})", min_value=0.0, step=0.01)
-        
-        submitted = st.form_submit_button("Incorporate Asset", use_container_width=True)
-        
-        if submitted and ticker and shares > 0:
-            base_cost = avg_cost / fx_rate 
-            st.session_state.assets = [a for a in st.session_state.assets if a['ticker'] != ticker]
-            st.session_state.assets.append({"ticker": ticker, "shares": shares, "cost": base_cost})
-            sync_to_url()
-            st.rerun()
+ticker_suggestions = [symbol for symbol in COMMON_TICKERS if ticker and symbol.startswith(ticker)]
 
-    st.markdown("---")
-    st.markdown("### 💼 Active Allocations")
-    if Pis_empty := (len(st.session_state.assets) == 0):
-        st.write("No active allocations found.")
+if st.sidebar.button("Confirm Ticker"):
+    if not ticker:
+        st.sidebar.error("Please enter a ticker symbol first.")
+    elif ticker in ticker_suggestions:
+        st.sidebar.success(f"Ticker confirmed: {ticker}")
+    elif ticker_suggestions:
+        st.sidebar.info("Did you mean:")
+        st.sidebar.write(", ".join(ticker_suggestions[:8]))
     else:
-        for i, asset in enumerate(st.session_state.assets):
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.write(f"**{asset['ticker']}** ({asset['shares']} units)")
-            with col2:
-                if st.button("✕", key=f"del_{i}"):
-                    st.session_state.assets.pop(i)
-                    sync_to_url()
-                    st.rerun()
-                    
-    st.markdown("---")
-    st.markdown("### 💾 Core Backup Storage")
-    uploaded_file = st.file_uploader("Upload JSON Manifest", type=["json"], label_visibility="collapsed")
-    if uploaded_file is not None:
-        try:
-            st.session_state.assets = json.load(uploaded_file)
-            sync_to_url()
-            st.success("State Restored Successfully!")
-            time.sleep(0.5)
-            st.rerun()
-        except:
-            st.error("Corrupted architecture file.")
+        st.sidebar.warning("No matching suggestions available for this ticker.")
 
-    if not Pis_empty:
-        st.download_button("⬇️ Export Structural Backup", data=json.dumps(st.session_state.assets), file_name="portfolio_backup.json", mime="application/json", use_container_width=True)
-
-# --- MAIN SYSTEM INTERFACE ---
-if Pis_empty:
-    st.markdown("<h1 style='text-align:center; margin-top:100px; color:#1a1a1a;'>Asset Tracking Terminal</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center; color:#6c757d;'>Engine idle. Use the configuration matrix in the sidebar to seed asset layers.</p>", unsafe_allow_html=True)
-
-else:
-    tf_map = {
-        "Live": ("1d", "1m"),
-        "1D": ("1d", "2m"),
-        "1W": ("5d", "15m"),
-        "1M": ("1mo", "1d"),
-        "5Y": ("5y", "1wk"),
-        "ALL": ("max", "1mo")
-    }
-    
-    t_cols = st.columns(6)
-    for idx, tf_opt in enumerate(["Live", "1D", "1W", "1M", "5Y", "ALL"]):
-        if t_cols[idx].button(tf_opt, use_container_width=True, type="primary" if st.session_state.timeframe == tf_opt else "secondary"):
-            st.session_state.timeframe = tf_opt
-            st.rerun()
-            
-    yf_period, yf_interval = tf_map[st.session_state.timeframe]
-
-    intraday_series = []
-    current_metrics = []
-    total_cost_basis = 0.0
-
-    for asset in st.session_state.assets:
-        tkr = yf.Ticker(asset['ticker'])
-        hist = tkr.history(period=yf_period, interval=yf_interval)
-        
-        if not hist.empty:
-            hist.index = hist.index.tz_localize(None) 
-            close_prices = hist['Close'] * asset['shares'] * fx_rate
-            intraday_series.append(close_prices.rename(asset['ticker']))
-            current_price = hist['Close'].iloc[-1] * fx_rate
+if st.sidebar.button("Add Asset"):
+    if ticker and amount > 0:
+        existing_tickers = [a["ticker"] for a in st.session_state.assets]
+        if ticker in existing_tickers:
+            st.sidebar.warning(f"{ticker} is already in your portfolio!")
         else:
-            current_price = 0.0
+            st.session_state.assets.append({"type": asset_type, "ticker": ticker, "holdings": amount})
+            st.sidebar.success(f"Added {amount} {ticker}!")
+            st.rerun()
+    else:
+        st.sidebar.error("Please enter a valid ticker and amount.")
+
+# --- MAIN DASHBOARD VIEW ---
+if len(st.session_state.assets) == 0:
+    st.info("💡 Your dashboard is empty. Either upload your encrypted data profile above or add a new asset in the sidebar to begin.")
+else:
+    st.subheader("Your Live Dashboard")
+    
+    updated_data = []
+    total_portfolio_value = 0.0
+    
+    with st.spinner("Fetching live market prices..."):
+        for asset in st.session_state.assets:
+            try:
+                ticker_data = yf.Ticker(asset["ticker"])
+                live_price = ticker_data.history(period="1d")["Close"].iloc[-1]
+            except Exception:
+                live_price = 0.0
+                
+            total_value = live_price * asset["holdings"]
+            total_portfolio_value += total_value
             
-        value = current_price * asset['shares']
-        cost = asset['cost'] * asset['shares'] * fx_rate
-        total_cost_basis += cost
+            updated_data.append({
+                "Type": asset["type"],
+                "Ticker": asset["ticker"],
+                "Holdings": asset["holdings"],
+                "Live Price ($)": round(live_price, 2) if live_price > 1 else round(live_price, 6),
+                "Total Value ($)": round(total_value, 2)
+            })
+            
+    # Visual Metrics Row
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.metric(label="Total Portfolio Net Worth", value=f"${total_portfolio_value:,.2f}")
+        df = pd.DataFrame(updated_data)
+        st.dataframe(df, use_container_width=True)
+    
+    with col2:
+        # Visual Chart Segment
+        st.subheader("📊 Asset Allocation Breakdowns")
+        st.bar_chart(data=df, x="Ticker", y="Total Value ($)", use_container_width=True)
+    
+    st.markdown("---")
+    
+    # --- SECURE DATA EXPORT BOX ---
+    st.subheader("🔒 Secure Data Export")
+    export_password = st.text_input("Create a File Encryption Password", type="password", key="export_pass")
+    
+    if export_password:
+        raw_portfolio_json = json.dumps(st.session_state.assets)
+        encrypted_string = encrypt_data(raw_portfolio_json, export_password)
         
-        current_metrics.append({
-            "ticker": asset['ticker'],
-            "shares": asset['shares'],
-            "value": value,
-            "return": value - cost
-        })
-
-    if intraday_series:
-        portfolio_df = pd.concat(intraday_series, axis=1).ffill().bfill()
-        portfolio_df['Total'] = portfolio_df.sum(axis=1)
-        
-        current_balance = portfolio_df['Total'].iloc[-1]
-        start_balance = portfolio_df['Total'].iloc[0]
-        
-        delta_dollar_change = current_balance - start_balance
-        delta_pct_change = (delta_dollar_change / start_balance) * 100 if start_balance > 0 else 0
-        
-        is_up_today = delta_dollar_change >= 0
-        chart_color = "#00C805" if is_up_today else "#FF5000"
-        sign = "+" if is_up_today else ""
-
-        st.markdown(f'<div class="main-price">{curr_sym}{current_balance:,.2f}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="return-text {"rh-green" if is_up_today else "rh-red"}">{sign}{curr_sym}{abs(delta_dollar_change):,.2f} ({sign}{delta_pct_change:.2f}%) Tracking ({st.session_state.timeframe})</div>', unsafe_allow_html=True)
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=portfolio_df.index, 
-            y=portfolio_df['Total'],
-            mode='lines',
-            line=dict(color=chart_color, width=2.5),
-            fill='tozeroy',
-            fillcolor=f'rgba({0 if is_up_today else 255}, {200 if is_up_today else 80}, {5 if is_up_today else 0}, 0.04)',
-            hoverinfo='y',
-            hovertemplate=f'{curr_sym}%{{y:,.2f}}<extra></extra>'
-        ))
-
-        fig.update_layout(
-            margin=dict(l=0, r=0, t=10, b=0),
-            height=300,
-            paper_bgcolor='rgba(255,255,255,0)', plot_bgcolor='rgba(255,255,255,0)',
-            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
-            yaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
-            hovermode="x unified"
+        st.download_button(
+            label="⬇️ Download Encrypted Portfolio File (.enc)",
+            data=encrypted_string,
+            file_name="portfolio.enc",
+            mime="text/plain"
         )
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-
-        st.markdown(f"### Asset Holdings Breakdown")
-        for metric in current_metrics:
-            is_pos_up = metric['return'] >= 0
-            pos_color = "#00C805" if is_pos_up else "#FF5000"
-            pos_sign = "+" if is_pos_up else ""
-            
-            st.markdown(f"""
-            <div class="asset-row" style="display: flex; justify-content: space-between;">
-                <div>
-                    <strong>{metric['ticker']}</strong><br>
-                    <span style='color:#6c757d; font-size:14px;'>{metric['shares']:,} units</span>
-                </div>
-                <div style="text-align: right;">
-                    <strong>{curr_sym}{metric['value']:,.2f}</strong><br>
-                    <span style='color:{pos_color}; font-size:14px;'>{pos_sign}{curr_sym}{metric['return']:,.2f}</span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        # --- DATA ARCHIVING ARCHITECTURE ---
-        st.markdown("<br>### 📥 Compliance Data Extraction Suite", unsafe_allow_html=True)
-        st.write("Extract your portfolio history matrix compiled cleanly across target intervals.")
+        st.success("🔒 Portfolio encrypted! Click the download button to save your backup.")
         
-        csv_df = portfolio_df[['Total']].reset_index()
-        csv_df.columns = ['Timestamp', f'Portfolio Value ({st.session_state.currency})']
-        
-        down_col1, down_col2, down_col3, down_col4 = st.columns(4)
-        
-        with down_col1:
-            st.download_button(label="📅 Daily Ledger", data=csv_df.to_csv(index=False).encode('utf-8'), 
-                               file_name=f"daily_valuation_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv", use_container_width=True)
-        with down_col2:
-            st.download_button(label="📊 Weekly Audit", data=csv_df.iloc[::5 if len(csv_df) > 5 else 1].to_csv(index=False).encode('utf-8'), 
-                               file_name="weekly_valuation_report.csv", mime="text/csv", use_container_width=True)
-        with down_col3:
-            st.download_button(label="📈 Monthly Ledger", data=csv_df.iloc[::20 if len(csv_df) > 20 else 1].to_csv(index=False).encode('utf-8'), 
-                               file_name="monthly_valuation_report.csv", mime="text/csv", use_container_width=True)
-        with down_col4:
-            st.download_button(label="🏛️ Annual Yield", data=csv_df.iloc[::250 if len(csv_df) > 250 else 1].to_csv(index=False).encode('utf-8'), 
-                               file_name="annual_valuation_report.csv", mime="text/csv", use_container_width=True)
-
-    # 1-Second Continuous Refresh
-    time.sleep(1)
-    st.rerun()
+    if st.button("🔴 Clear Active Session"):
+        st.session_state.assets = []
+        st.rerun()
