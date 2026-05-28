@@ -125,8 +125,6 @@ TICKER_SUGGESTIONS = [
 with st.sidebar:
     st.markdown("### ⚙️ Global Controls")
     st.session_state.currency = st.selectbox("Base Currency", ["USD", "EUR", "GBP"])
-    
-    # Timezone Matrix Configuration
     st.session_state.timezone = st.selectbox(
         "Application Timezone", 
         ["US/Central", "US/Eastern", "US/Mountain", "US/Pacific", "UTC", "Europe/London", "Europe/Berlin", "Asia/Tokyo"]
@@ -157,7 +155,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### 💼 Active Allocations")
-    if Pis_empty := (len(st.session_state.assets) == 0):
+    if len(st.session_state.assets) == 0:
         st.write("No active allocations found.")
     else:
         for i, asset in enumerate(st.session_state.assets):
@@ -174,30 +172,32 @@ with st.sidebar:
     st.markdown("### 💾 Core Backup Storage")
     uploaded_file = st.file_uploader("Upload JSON Manifest", type=["json"], label_visibility="collapsed")
     
-    rerun_needed = False
     if uploaded_file is not None:
         try:
             data = json.load(uploaded_file)
             if isinstance(data, dict) and "assets" in data:
-                st.session_state.assets = data["assets"]
+                uploaded_assets = data["assets"]
             else:
-                st.session_state.assets = data
+                uploaded_assets = data
                 
-            sync_to_url()
-            st.success("State Restored Successfully!")
-            time.sleep(0.5)
-            rerun_needed = True
+            # IMMUNIZATION LAYER: Only commit changes and rerun if data is structurally new
+            if uploaded_assets != st.session_state.assets:
+                st.session_state.assets = uploaded_assets
+                sync_to_url()
+                st.success("State Restored Successfully!")
+                time.sleep(0.5)
+                st.rerun()
         except:
             st.error("Corrupted architecture file.")
-            
-    if rerun_needed:
-        st.rerun()
 
-    if not Pis_empty:
+    if len(st.session_state.assets) > 0:
         st.download_button("⬇️ Export Structural Backup", data=json.dumps(st.session_state.assets), file_name="portfolio_backup.json", mime="application/json", use_container_width=True)
 
+# --- MASTER LAYOUT FLAG ASSIGNMENT ---
+is_portfolio_empty = len(st.session_state.assets) == 0
+
 # --- MAIN SYSTEM INTERFACE ---
-if Pis_empty:
+if is_portfolio_empty:
     st.markdown("<h1 style='text-align:center; margin-top:100px; color:#1a1a1a;'>Asset Tracking Terminal</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align:center; color:#6c757d;'>Engine idle. Use the configuration matrix in the sidebar to seed asset layers.</p>", unsafe_allow_html=True)
 
@@ -228,7 +228,6 @@ else:
         hist = tkr.history(period=yf_period, interval=yf_interval)
         
         if not hist.empty:
-            # Dynamic Target Timezone Translation Engine
             if hist.index.tz is not None:
                 hist.index = hist.index.tz_convert(st.session_state.timezone).tz_localize(None)
             else:
