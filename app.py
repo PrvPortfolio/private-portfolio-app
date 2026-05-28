@@ -26,22 +26,53 @@ if "timeframe" not in st.session_state: st.session_state.timeframe = "1D"
 def sync_to_url():
     st.query_params["p"] = base64.b64encode(json.dumps(st.session_state.assets).encode()).decode()
 
-# --- LOCKED DAY MODE THEMING WITH DEVICE DARK-MODE DETECTOR (CSS) ---
+# --- HARDENED LIGHT MODE ROOT INJECTION (CSS) ---
 st.markdown("""
     <style>
-    /* Global Day Mode Canvas */
-    .stApp { background-color: #ffffff; color: #000000; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
-    .main-price { font-size: 64px; font-weight: 500; letter-spacing: -2px; margin-bottom: 0px; padding-bottom: 0px; color: #000000; }
+    /* 1. HIJACK CORE THEME VARIABLES - Stops Streamlit from switching to Dark Mode internally */
+    :root, .stApp, [data-testid="stAppViewContainer"] {
+        --background-color: #ffffff !important;
+        --secondary-background-color: #f1f3f5 !important;
+        --text-color: #000000 !important;
+        --primary-color: #000000 !important;
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+    
+    /* 2. FORCE GLOBAL TYPOGRAPHY */
+    p, span, label, h3, h2, h1, div { color: #000000; }
+
+    /* 3. UNCOMPROMISING BUTTON RULES - Overrides all device-level themes */
+    button[data-testid="baseButton-secondary"], button {
+        background-color: #f1f3f5 !important;
+        color: #000000 !important;
+        border: 1px solid #cbd5e1 !important;
+    }
+    button[data-testid="baseButton-secondary"] span, button[data-testid="baseButton-secondary"] p, button span {
+        color: #000000 !important;
+    }
+    
+    button[data-testid="baseButton-primary"] {
+        background-color: #000000 !important;
+        color: #ffffff !important;
+        border: 1px solid #000000 !important;
+    }
+    button[data-testid="baseButton-primary"] span, button[data-testid="baseButton-primary"] p {
+        color: #ffffff !important;
+    }
+
+    /* 4. MAIN INTERFACE METRICS */
+    .main-price { font-size: 64px; font-weight: 500; letter-spacing: -2px; margin-bottom: 0px; padding-bottom: 0px; color: #000000 !important; }
     .return-text { font-size: 18px; font-weight: 500; margin-top: -15px; margin-bottom: 20px; }
-    .rh-green { color: #00C805; }
-    .rh-red { color: #FF5000; }
-    [data-testid="stSidebar"] { background-color: #f8f9fa; border-right: 1px solid #e5e5ea; }
-    .asset-row { border-bottom: 1px solid #e5e5ea; padding: 10px 0; color: #000000; }
+    .rh-green { color: #00C805 !important; }
+    .rh-red { color: #FF5000 !important; }
     
-    /* Extreme Visibility Settings for Intake Form Boxes */
-    div[data-testid="stForm"] { background-color: #ffffff; border: 1px solid #a1a1a6; border-radius: 12px; padding: 15px; }
+    /* 5. SIDEBAR & MATRIX FORM HARDENING */
+    [data-testid="stSidebar"] { background-color: #f8f9fa !important; border-right: 1px solid #e5e5ea !important; }
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label, [data-testid="stSidebar"] h3 { color: #000000 !important; }
+    .asset-row { border-bottom: 1px solid #e5e5ea; padding: 10px 0; color: #000000 !important; }
     
-    /* Target all Text, Number, and Dropdown search fields inside the Intake Form */
+    div[data-testid="stForm"] { background-color: #ffffff !important; border: 1px solid #a1a1a6 !important; border-radius: 12px; padding: 15px; }
     div[data-testid="stForm"] input, 
     div[data-testid="stForm"] div[data-baseweb="select"] {
         background-color: #ffffff !important;
@@ -50,31 +81,18 @@ st.markdown("""
         border-radius: 8px !important;
         font-weight: 600 !important;
     }
-    
     div[data-testid="stForm"] div[data-baseweb="select"] span,
     div[data-testid="stForm"] div[data-baseweb="select"] div {
         color: #000000 !important;
-        font-weight: 600 !important;
     }
     
-    p, span, label, h3 { color: #000000 !important; }
+    /* Dropdown Overlays */
+    div[data-baseweb="popover"] ul { background-color: #ffffff !important; }
+    div[data-baseweb="popover"] li { color: #000000 !important; font-weight: 500; }
 
-    /* --- DEVICE DARK-MODE ACCESSIBILITY OVERRIDES --- */
-    @media (prefers-color-scheme: dark) {
-        /* Force container header background to align with system constraints */
-        [data-testid="stHeader"] { background-color: #0e0f11 !important; }
-        
-        /* Force the Top-Right Main Menu Button & Icons to shine crisp White */
-        [data-testid="stHeader"] button,
-        [data-testid="stHeader"] svg,
-        #MainMenu,
-        #MainMenu svg,
-        button[aria-label="User Menu"],
-        [data-testid="stSidebarCollapseButton"] button svg {
-            color: #ffffff !important;
-            fill: #ffffff !important;
-        }
-    }
+    /* Navigation Header Controls */
+    [data-testid="stHeader"] { background-color: transparent !important; }
+    [data-testid="stHeader"] svg, #MainMenu svg, button[aria-label="User Menu"] svg { fill: #000000 !important; color: #000000 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -148,15 +166,26 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 💾 Core Backup Storage")
     uploaded_file = st.file_uploader("Upload JSON Manifest", type=["json"], label_visibility="collapsed")
+    
+    rerun_needed = False
     if uploaded_file is not None:
         try:
-            st.session_state.assets = json.load(uploaded_file)
+            data = json.load(uploaded_file)
+            # Safe structural extraction fallback
+            if isinstance(data, dict) and "assets" in data:
+                st.session_state.assets = data["assets"]
+            else:
+                st.session_state.assets = data
+                
             sync_to_url()
             st.success("State Restored Successfully!")
             time.sleep(0.5)
-            st.rerun()
+            rerun_needed = True
         except:
             st.error("Corrupted architecture file.")
+            
+    if rerun_needed:
+        st.rerun()
 
     if not Pis_empty:
         st.download_button("⬇️ Export Structural Backup", data=json.dumps(st.session_state.assets), file_name="portfolio_backup.json", mime="application/json", use_container_width=True)
