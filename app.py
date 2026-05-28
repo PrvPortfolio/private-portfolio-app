@@ -204,7 +204,6 @@ else:
         "ALL": ("max", "1mo")
     }
     
-    # Render exactly 8 tracking dimension headers
     t_cols = st.columns(8)
     for idx, tf_opt in enumerate(["Live", "1D", "1W", "1M", "3M", "YTD", "1Y", "ALL"]):
         if t_cols[idx].button(tf_opt, use_container_width=True, type="primary" if st.session_state.timeframe == tf_opt else "secondary"):
@@ -328,27 +327,30 @@ else:
                 </div>
                 """, unsafe_allow_html=True)
 
-            # --- DATA ARCHIVING ARCHITECTURE ---
+            # --- DYNAMIC COMPLIANCE LEDGER ARCHIVING ARCHITECTURE ---
             st.markdown("<br>### 📥 Compliance Data Extraction Suite", unsafe_allow_html=True)
             st.write("Extract your portfolio history matrix compiled cleanly across target intervals.")
             
             csv_df = portfolio_df[['Total']].reset_index()
             csv_df.columns = ['Timestamp', f'Portfolio Value ({st.session_state.currency})']
             
+            # Generate local filesystem friendly timestamp suffix (e.g., 2026-05-28)
+            current_date = datetime.now().strftime('%Y-%m-%d')
+            
             down_col1, down_col2, down_col3, down_col4 = st.columns(4)
             
             with down_col1:
                 st.download_button(label="📅 Daily Ledger", data=csv_df.to_csv(index=False).encode('utf-8'), 
-                                   file_name=f"daily_valuation_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv", use_container_width=True)
+                                   file_name=f"daily_ledger_{current_date}.csv", mime="text/csv", use_container_width=True)
             with down_col2:
                 st.download_button(label="📊 Weekly Audit", data=csv_df.iloc[::5 if len(csv_df) > 5 else 1].to_csv(index=False).encode('utf-8'), 
-                                   file_name="weekly_valuation_report.csv", mime="text/csv", use_container_width=True)
+                                   file_name=f"weekly_audit_{current_date}.csv", mime="text/csv", use_container_width=True)
             with down_col3:
                 st.download_button(label="📈 Monthly Ledger", data=csv_df.iloc[::20 if len(csv_df) > 20 else 1].to_csv(index=False).encode('utf-8'), 
-                                   file_name="monthly_valuation_report.csv", mime="text/csv", use_container_width=True)
+                                   file_name=f"monthly_ledger_{current_date}.csv", mime="text/csv", use_container_width=True)
             with down_col4:
                 st.download_button(label="🏛️ Annual Yield", data=csv_df.iloc[::250 if len(csv_df) > 250 else 1].to_csv(index=False).encode('utf-8'), 
-                                   file_name="annual_valuation_report.csv", mime="text/csv", use_container_width=True)
+                                   file_name=f"annual_yield_{current_date}.csv", mime="text/csv", use_container_width=True)
 
     # 3-Second Smooth Interface Rerun Cycle
     time.sleep(3)
