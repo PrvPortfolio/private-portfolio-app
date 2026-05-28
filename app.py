@@ -241,7 +241,7 @@ else:
             "shares": asset['shares'],
             "value": value,
             "return": value - cost,
-            "price": current_price  # <-- Track item price here
+            "price": current_price
         })
 
     if intraday_series:
@@ -315,7 +315,6 @@ else:
                 pos_color = "#00C805" if is_pos_up else "#FF5000"
                 pos_sign = "+" if is_pos_up else ""
                 
-                # Render clean row structure containing the real-time share price context
                 st.markdown(f"""
                 <div class="asset-row" style="display: flex; justify-content: space-between;">
                     <div>
@@ -329,29 +328,49 @@ else:
                 </div>
                 """, unsafe_allow_html=True)
 
-            # --- DYNAMIC COMPLIANCE LEDGER ARCHIVING ARCHITECTURE ---
+            # --- CLEAN CALENDAR LEDGER ARCHIVING ARCHITECTURE ---
             st.markdown("<br>### 📥 Compliance Data Extraction Suite", unsafe_allow_html=True)
-            st.write("Extract your portfolio history matrix compiled cleanly across target intervals.")
+            st.write("Extract your portfolio history matrix filtered precisely by real calendar boundaries.")
             
-            csv_df = portfolio_df[['Total']].reset_index()
-            csv_df.columns = ['Timestamp', f'Portfolio Value ({st.session_state.currency})']
+            # Base historical matrix
+            base_csv = portfolio_df[['Total']].copy()
             
-            current_date = datetime.now().strftime('%Y-%m-%d')
+            # A. Daily Ledger Filter (Exact Current Day)
+            df_daily = base_csv[base_csv.index.date == latest_now.date()].reset_index()
+            df_daily.columns = ['Timestamp', f'Portfolio Value ({st.session_state.currency})']
+            str_daily = latest_now.strftime('%Y-%m-%d')
+            
+            # B. Weekly Ledger Filter (Monday 00:00 to Sunday 23:59)
+            monday_bound = (latest_now - pd.Timedelta(days=latest_now.weekday())).normalize()
+            sunday_bound = monday_bound + pd.Timedelta(days=6, hours=23, minutes=59, seconds=59)
+            df_weekly = base_csv[(base_csv.index >= monday_bound) & (base_csv.index <= sunday_bound)].reset_index()
+            df_weekly.columns = ['Timestamp', f'Portfolio Value ({st.session_state.currency})']
+            str_weekly = f"{monday_bound.strftime('%Y-%m-%d')}_to_{(monday_bound + pd.Timedelta(days=6)).strftime('%Y-%m-%d')}"
+            
+            # C. Monthly Ledger Filter (Exact Current Calendar Month)
+            df_monthly = base_csv[(base_csv.index.year == latest_now.year) & (base_csv.index.month == latest_now.month)].reset_index()
+            df_monthly.columns = ['Timestamp', f'Portfolio Value ({st.session_state.currency})']
+            str_monthly = latest_now.strftime('%Y-%m')
+            
+            # D. Yearly Ledger Filter (Exact Current Calendar Year)
+            df_yearly = base_csv[base_csv.index.year == latest_now.year].reset_index()
+            df_yearly.columns = ['Timestamp', f'Portfolio Value ({st.session_state.currency})']
+            str_yearly = latest_now.strftime('%Y')
             
             down_col1, down_col2, down_col3, down_col4 = st.columns(4)
             
             with down_col1:
-                st.download_button(label="📅 Daily Ledger", data=csv_df.to_csv(index=False).encode('utf-8'), 
-                                   file_name=f"daily_ledger_{current_date}.csv", mime="text/csv", use_container_width=True)
+                st.download_button(label="📅 Daily Ledger", data=df_daily.to_csv(index=False).encode('utf-8'), 
+                                   file_name=f"daily_ledger_{str_daily}.csv", mime="text/csv", use_container_width=True)
             with down_col2:
-                st.download_button(label="📊 Weekly Audit", data=csv_df.iloc[::5 if len(csv_df) > 5 else 1].to_csv(index=False).encode('utf-8'), 
-                                   file_name=f"weekly_audit_{current_date}.csv", mime="text/csv", use_container_width=True)
+                st.download_button(label="📊 Weekly Audit", data=df_weekly.to_csv(index=False).encode('utf-8'), 
+                                   file_name=f"weekly_ledger_{str_weekly}.csv", mime="text/csv", use_container_width=True)
             with down_col3:
-                st.download_button(label="📈 Monthly Ledger", data=csv_df.iloc[::20 if len(csv_df) > 20 else 1].to_csv(index=False).encode('utf-8'), 
-                                   file_name=f"monthly_ledger_{current_date}.csv", mime="text/csv", use_container_width=True)
+                st.download_button(label="📈 Monthly Ledger", data=df_monthly.to_csv(index=False).encode('utf-8'), 
+                                   file_name=f"monthly_ledger_{str_monthly}.csv", mime="text/csv", use_container_width=True)
             with down_col4:
-                st.download_button(label="🏛️ Annual Yield", data=csv_df.iloc[::250 if len(csv_df) > 250 else 1].to_csv(index=False).encode('utf-8'), 
-                                   file_name=f"annual_yield_{current_date}.csv", mime="text/csv", use_container_width=True)
+                st.download_button(label="🏛️ Annual Yield", data=df_yearly.to_csv(index=False).encode('utf-8'), 
+                                   file_name=f"yearly_ledger_{str_yearly}.csv", mime="text/csv", use_container_width=True)
 
     # 3-Second Smooth Interface Rerun Cycle
     time.sleep(3)
