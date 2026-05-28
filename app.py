@@ -240,7 +240,8 @@ else:
             "ticker": asset['ticker'],
             "shares": asset['shares'],
             "value": value,
-            "return": value - cost
+            "return": value - cost,
+            "price": current_price  # <-- Track item price here
         })
 
     if intraday_series:
@@ -314,11 +315,12 @@ else:
                 pos_color = "#00C805" if is_pos_up else "#FF5000"
                 pos_sign = "+" if is_pos_up else ""
                 
+                # Render clean row structure containing the real-time share price context
                 st.markdown(f"""
                 <div class="asset-row" style="display: flex; justify-content: space-between;">
                     <div>
                         <strong>{metric['ticker']}</strong><br>
-                        <span style='color:#6c757d; font-size:14px;'>{metric['shares']:,} units</span>
+                        <span style='color:#6c757d; font-size:14px;'>{metric['shares']:,} units · {curr_sym}{metric['price']:,.2f}</span>
                     </div>
                     <div style="text-align: right;">
                         <strong>{curr_sym}{metric['value']:,.2f}</strong><br>
@@ -334,7 +336,6 @@ else:
             csv_df = portfolio_df[['Total']].reset_index()
             csv_df.columns = ['Timestamp', f'Portfolio Value ({st.session_state.currency})']
             
-            # Generate local filesystem friendly timestamp suffix (e.g., 2026-05-28)
             current_date = datetime.now().strftime('%Y-%m-%d')
             
             down_col1, down_col2, down_col3, down_col4 = st.columns(4)
