@@ -30,7 +30,7 @@ def sync_to_url():
 # --- HARDENED LIGHT MODE ROOT INJECTION (CSS) ---
 st.markdown("""
     <style>
-    /* 1. HIJACK CORE THEME VARIABLES - Stops Streamlit from switching to Dark Mode internally */
+    /* 1. HIJACK CORE THEME VARIABLES */
     :root, .stApp, [data-testid="stAppViewContainer"] {
         --background-color: #ffffff !important;
         --secondary-background-color: #f1f3f5 !important;
@@ -40,16 +40,20 @@ st.markdown("""
         color: #000000 !important;
     }
     
-    /* 2. FORCE GLOBAL TYPOGRAPHY */
+    /* 2. STABILIZE HEADER & LAYOUT SHIFTS DURING REFRESH */
+    [data-testid="stHeader"] { background-color: transparent !important; }
+    [data-testid="stHeader"] svg, #MainMenu svg, button[aria-label="User Menu"] svg { fill: #000000 !important; color: #000000 !important; }
+    
+    /* 3. FORCE GLOBAL TYPOGRAPHY */
     p, span, label, h3, h2, h1, div { color: #000000; }
 
-    /* 3. UNCOMPROMISING BUTTON RULES - Overrides all device-level themes */
-    button[data-testid="baseButton-secondary"], button {
+    /* 4. EXPLICIT CONTRAST BUTTON SPECIFICITY RULES */
+    button[data-testid="baseButton-secondary"] {
         background-color: #f1f3f5 !important;
         color: #000000 !important;
         border: 1px solid #cbd5e1 !important;
     }
-    button[data-testid="baseButton-secondary"] span, button[data-testid="baseButton-secondary"] p, button span {
+    button[data-testid="baseButton-secondary"] span, button[data-testid="baseButton-secondary"] p {
         color: #000000 !important;
     }
     
@@ -62,13 +66,13 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* 4. MAIN INTERFACE METRICS */
+    /* 5. MAIN INTERFACE METRICS */
     .main-price { font-size: 64px; font-weight: 500; letter-spacing: -2px; margin-bottom: 0px; padding-bottom: 0px; color: #000000 !important; }
     .return-text { font-size: 18px; font-weight: 500; margin-top: -15px; margin-bottom: 20px; }
     .rh-green { color: #00C805 !important; }
     .rh-red { color: #FF5000 !important; }
     
-    /* 5. SIDEBAR & MATRIX FORM HARDENING */
+    /* 6. SIDEBAR & MATRIX FORM HARDENING */
     [data-testid="stSidebar"] { background-color: #f8f9fa !important; border-right: 1px solid #e5e5ea !important; }
     [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label, [data-testid="stSidebar"] h3 { color: #000000 !important; }
     .asset-row { border-bottom: 1px solid #e5e5ea; padding: 10px 0; color: #000000 !important; }
@@ -87,13 +91,8 @@ st.markdown("""
         color: #000000 !important;
     }
     
-    /* Dropdown Overlays */
     div[data-baseweb="popover"] ul { background-color: #ffffff !important; }
     div[data-baseweb="popover"] li { color: #000000 !important; font-weight: 500; }
-
-    /* Navigation Header Controls */
-    [data-testid="stHeader"] { background-color: transparent !important; }
-    [data-testid="stHeader"] svg, #MainMenu svg, button[aria-label="User Menu"] svg { fill: #000000 !important; color: #000000 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -118,7 +117,7 @@ TICKER_SUGGESTIONS = [
     "AMD (Advanced Micro Devices)", "PLTR (Palantir)", "COIN (Coinbase)", "HOOD (Robinhood)",
     "VOO (S&P 500 ETF)", "SPY (S&P 500 ETF)", "QQQ (Nasdaq 100)", "IWM (Russell 2000)",
     "BTC-USD (Bitcoin)", "ETH-USD (Ethereum)", "SOL-USD (Solana)", "DOGE-USD (Dogecoin)",
-    "XRP-USD (Ripple)", "ADA-USD (Cardano)", "DIS (Disney)", "NKE (Nike)", "GME (GameStop)"
+    "XRP-USD (Ripple)", "ADA-USD (Cardano)"
 ]
 
 # --- SIDEBAR CONTROL PANEL ---
@@ -134,11 +133,7 @@ with st.sidebar:
     st.markdown("### ➕ Add Asset Intake")
     with st.form("add_asset_form", clear_on_submit=True):
         suggestion_select = st.selectbox("Search Suggestions", TICKER_SUGGESTIONS, index=0)
-        
-        if suggestion_select != "--- Select a Suggestion Below ---":
-            autofill_value = suggestion_select.split(" ")[0]
-        else:
-            autofill_value = ""
+        autofill_value = suggestion_select.split(" ")[0] if suggestion_select != "--- Select a Suggestion Below ---" else ""
             
         ticker = st.text_input("Ticker Confirmation", value=autofill_value, placeholder="e.g. AAPL, VOO, BTC-USD").upper().strip()
         shares = st.number_input("Share Quantity", min_value=0.0, step=0.01)
@@ -175,12 +170,8 @@ with st.sidebar:
     if uploaded_file is not None:
         try:
             data = json.load(uploaded_file)
-            if isinstance(data, dict) and "assets" in data:
-                uploaded_assets = data["assets"]
-            else:
-                uploaded_assets = data
+            uploaded_assets = data["assets"] if (isinstance(data, dict) and "assets" in data) else data
                 
-            # IMMUNIZATION LAYER: Only commit changes and rerun if data is structurally new
             if uploaded_assets != st.session_state.assets:
                 st.session_state.assets = uploaded_assets
                 sync_to_url()
@@ -202,9 +193,10 @@ if is_portfolio_empty:
     st.markdown("<p style='text-align:center; color:#6c757d;'>Engine idle. Use the configuration matrix in the sidebar to seed asset layers.</p>", unsafe_allow_html=True)
 
 else:
+    # Fetch safe historical boundaries to build clean timezone parsing slices
     tf_map = {
-        "Live": ("1d", "1m"),
-        "1D": ("1d", "2m"),
+        "Live": ("2d", "1m"),
+        "1D": ("2d", "2m"),
         "1W": ("5d", "15m"),
         "1M": ("1mo", "1d"),
         "5Y": ("5y", "1wk"),
@@ -251,85 +243,111 @@ else:
         })
 
     if intraday_series:
-        portfolio_df = pd.concat(intraday_series, axis=1).ffill().bfill()
+        portfolio_df = pd.concat(intraday_series, axis=1).ffill().bfill().sort_index()
         portfolio_df['Total'] = portfolio_df.sum(axis=1)
         
-        current_balance = portfolio_df['Total'].iloc[-1]
-        start_balance = portfolio_df['Total'].iloc[0]
+        # --- DATA-DRIVEN ANCHOR SYSTEM (Bypasses server clock drifts) ---
+        latest_now = portfolio_df.index[-1]
         
-        delta_dollar_change = current_balance - start_balance
-        delta_pct_change = (delta_dollar_change / start_balance) * 100 if start_balance > 0 else 0
-        
-        is_up_today = delta_dollar_change >= 0
-        chart_color = "#00C805" if is_up_today else "#FF5000"
-        sign = "+" if is_up_today else ""
+        if st.session_state.timeframe == "Live":
+            start_filter = latest_now - pd.Timedelta(hours=1)
+            portfolio_df = portfolio_df[portfolio_df.index >= start_filter]
+            xaxis_format = "%I:%M %p"  # Clean Time Display (e.g. 10:42 AM)
+        elif st.session_state.timeframe == "1D":
+            start_filter = latest_now.normalize()  # Drop everything before 12:00 AM today
+            portfolio_df = portfolio_df[portfolio_df.index >= start_filter]
+            xaxis_format = "%I:%M %p"  # Clean Time Display (e.g. 02:15 PM)
+        elif st.session_state.timeframe in ["1W", "1M"]:
+            xaxis_format = "%b %d"     # Macro Date Display (e.g. May 28)
+        else:
+            xaxis_format = "%Y-%m"    # Multi-Year Display (e.g. 2026-05)
 
-        st.markdown(f'<div class="main-price">{curr_sym}{current_balance:,.2f}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="return-text {"rh-green" if is_up_today else "rh-red"}">{sign}{curr_sym}{abs(delta_dollar_change):,.2f} ({sign}{delta_pct_change:.2f}%) Tracking ({st.session_state.timeframe})</div>', unsafe_allow_html=True)
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=portfolio_df.index, 
-            y=portfolio_df['Total'],
-            mode='lines',
-            line=dict(color=chart_color, width=2.5),
-            fill='tozeroy',
-            fillcolor=f'rgba({0 if is_up_today else 255}, {200 if is_up_today else 80}, {5 if is_up_today else 0}, 0.04)',
-            hoverinfo='y',
-            hovertemplate=f'{curr_sym}%{{y:,.2f}}<extra></extra>'
-        ))
-
-        fig.update_layout(
-            margin=dict(l=0, r=0, t=10, b=0),
-            height=300,
-            paper_bgcolor='rgba(255,255,255,0)', plot_bgcolor='rgba(255,255,255,0)',
-            xaxis=dict(showgrid=False, showticklabels=True, zeroline=False, tickfont=dict(color="#000000")),
-            yaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
-            hovermode="x unified"
-        )
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-
-        st.markdown(f"### Asset Holdings Breakdown")
-        for metric in current_metrics:
-            is_pos_up = metric['return'] >= 0
-            pos_color = "#00C805" if is_pos_up else "#FF5000"
-            pos_sign = "+" if is_pos_up else ""
+        if portfolio_df.empty:
+            st.info("No localized asset adjustments captured inside this time segment yet.")
+        else:
+            current_balance = portfolio_df['Total'].iloc[-1]
+            start_balance = portfolio_df['Total'].iloc[0]
             
-            st.markdown(f"""
-            <div class="asset-row" style="display: flex; justify-content: space-between;">
-                <div>
-                    <strong>{metric['ticker']}</strong><br>
-                    <span style='color:#6c757d; font-size:14px;'>{metric['shares']:,} units</span>
-                </div>
-                <div style="text-align: right;">
-                    <strong>{curr_sym}{metric['value']:,.2f}</strong><br>
-                    <span style='color:{pos_color}; font-size:14px;'>{pos_sign}{curr_sym}{metric['return']:,.2f}</span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            delta_dollar_change = current_balance - start_balance
+            delta_pct_change = (delta_dollar_change / start_balance) * 100 if start_balance > 0 else 0
+            
+            is_up_today = delta_dollar_change >= 0
+            chart_color = "#00C805" if is_up_today else "#FF5000"
+            sign = "+" if is_up_today else ""
 
-        # --- DATA ARCHIVING ARCHITECTURE ---
-        st.markdown("<br>### 📥 Compliance Data Extraction Suite", unsafe_allow_html=True)
-        st.write("Extract your portfolio history matrix compiled cleanly across target intervals.")
-        
-        csv_df = portfolio_df[['Total']].reset_index()
-        csv_df.columns = ['Timestamp', f'Portfolio Value ({st.session_state.currency})']
-        
-        down_col1, down_col2, down_col3, down_col4 = st.columns(4)
-        
-        with down_col1:
-            st.download_button(label="📅 Daily Ledger", data=csv_df.to_csv(index=False).encode('utf-8'), 
-                               file_name=f"daily_valuation_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv", use_container_width=True)
-        with down_col2:
-            st.download_button(label="📊 Weekly Audit", data=csv_df.iloc[::5 if len(csv_df) > 5 else 1].to_csv(index=False).encode('utf-8'), 
-                               file_name="weekly_valuation_report.csv", mime="text/csv", use_container_width=True)
-        with down_col3:
-            st.download_button(label="📈 Monthly Ledger", data=csv_df.iloc[::20 if len(csv_df) > 20 else 1].to_csv(index=False).encode('utf-8'), 
-                               file_name="monthly_valuation_report.csv", mime="text/csv", use_container_width=True)
-        with down_col4:
-            st.download_button(label="🏛️ Annual Yield", data=csv_df.iloc[::250 if len(csv_df) > 250 else 1].to_csv(index=False).encode('utf-8'), 
-                               file_name="annual_valuation_report.csv", mime="text/csv", use_container_width=True)
+            st.markdown(f'<div class="main-price">{curr_sym}{current_balance:,.2f}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="return-text {"rh-green" if is_up_today else "rh-red"}">{sign}{curr_sym}{abs(delta_dollar_change):,.2f} ({sign}{delta_pct_change:.2f}%) Tracking ({st.session_state.timeframe})</div>', unsafe_allow_html=True)
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=portfolio_df.index, 
+                y=portfolio_df['Total'],
+                mode='lines',
+                line=dict(color=chart_color, width=2.5),
+                fill='tozeroy',
+                fillcolor=f'rgba({0 if is_up_today else 255}, {200 if is_up_today else 80}, {5 if is_up_today else 0}, 0.04)',
+                hoverinfo='y',
+                hovertemplate=f'{curr_sym}%{{y:,.2f}}<extra></extra>'
+            ))
 
-    # 1-Second Continuous Refresh
-    time.sleep(1)
+            fig.update_layout(
+                margin=dict(l=0, r=0, t=10, b=0),
+                height=300,
+                paper_bgcolor='rgba(255,255,255,0)', plot_bgcolor='rgba(255,255,255,0)',
+                xaxis=dict(
+                    showgrid=False, 
+                    showticklabels=True, 
+                    zeroline=False, 
+                    tickfont=dict(color="#000000"),
+                    tickformat=xaxis_format,       # STRIP DATES FROM BASE AXIS LABELS
+                    hoverformat=xaxis_format       # STRIP DATES FROM HOVER POPUPS
+                ),
+                yaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+            st.markdown(f"### Asset Holdings Breakdown")
+            for metric in current_metrics:
+                is_pos_up = metric['return'] >= 0
+                pos_color = "#00C805" if is_pos_up else "#FF5000"
+                pos_sign = "+" if is_pos_up else ""
+                
+                st.markdown(f"""
+                <div class="asset-row" style="display: flex; justify-content: space-between;">
+                    <div>
+                        <strong>{metric['ticker']}</strong><br>
+                        <span style='color:#6c757d; font-size:14px;'>{metric['shares']:,} units</span>
+                    </div>
+                    <div style="text-align: right;">
+                        <strong>{curr_sym}{metric['value']:,.2f}</strong><br>
+                        <span style='color:{pos_color}; font-size:14px;'>{pos_sign}{curr_sym}{metric['return']:,.2f}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # --- DATA ARCHIVING ARCHITECTURE ---
+            st.markdown("<br>### 📥 Compliance Data Extraction Suite", unsafe_allow_html=True)
+            st.write("Extract your portfolio history matrix compiled cleanly across target intervals.")
+            
+            csv_df = portfolio_df[['Total']].reset_index()
+            csv_df.columns = ['Timestamp', f'Portfolio Value ({st.session_state.currency})']
+            
+            down_col1, down_col2, down_col3, down_col4 = st.columns(4)
+            
+            with down_col1:
+                st.download_button(label="📅 Daily Ledger", data=csv_df.to_csv(index=False).encode('utf-8'), 
+                                   file_name=f"daily_valuation_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv", use_container_width=True)
+            with down_col2:
+                st.download_button(label="📊 Weekly Audit", data=csv_df.iloc[::5 if len(csv_df) > 5 else 1].to_csv(index=False).encode('utf-8'), 
+                                   file_name="weekly_valuation_report.csv", mime="text/csv", use_container_width=True)
+            with down_col3:
+                st.download_button(label="📈 Monthly Ledger", data=csv_df.iloc[::20 if len(csv_df) > 20 else 1].to_csv(index=False).encode('utf-8'), 
+                                   file_name="monthly_valuation_report.csv", mime="text/csv", use_container_width=True)
+            with down_col4:
+                st.download_button(label="🏛️ Annual Yield", data=csv_df.iloc[::250 if len(csv_df) > 250 else 1].to_csv(index=False).encode('utf-8'), 
+                                   file_name="annual_valuation_report.csv", mime="text/csv", use_container_width=True)
+
+    # 3-Second Smooth Interface Rerun Cycle
+    time.sleep(3)
     st.rerun()
