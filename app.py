@@ -22,6 +22,7 @@ if "assets" not in st.session_state:
 
 if "currency" not in st.session_state: st.session_state.currency = "USD"
 if "timeframe" not in st.session_state: st.session_state.timeframe = "1D"
+if "timezone" not in st.session_state: st.session_state.timezone = "US/Central"
 
 def sync_to_url():
     st.query_params["p"] = base64.b64encode(json.dumps(st.session_state.assets).encode()).decode()
@@ -124,6 +125,12 @@ TICKER_SUGGESTIONS = [
 with st.sidebar:
     st.markdown("### ⚙️ Global Controls")
     st.session_state.currency = st.selectbox("Base Currency", ["USD", "EUR", "GBP"])
+    
+    # Timezone Matrix Configuration
+    st.session_state.timezone = st.selectbox(
+        "Application Timezone", 
+        ["US/Central", "US/Eastern", "US/Mountain", "US/Pacific", "UTC", "Europe/London", "Europe/Berlin", "Asia/Tokyo"]
+    )
     st.markdown("---")
     
     st.markdown("### ➕ Add Asset Intake")
@@ -171,7 +178,6 @@ with st.sidebar:
     if uploaded_file is not None:
         try:
             data = json.load(uploaded_file)
-            # Safe structural extraction fallback
             if isinstance(data, dict) and "assets" in data:
                 st.session_state.assets = data["assets"]
             else:
@@ -222,7 +228,12 @@ else:
         hist = tkr.history(period=yf_period, interval=yf_interval)
         
         if not hist.empty:
-            hist.index = hist.index.tz_localize(None) 
+            # Dynamic Target Timezone Translation Engine
+            if hist.index.tz is not None:
+                hist.index = hist.index.tz_convert(st.session_state.timezone).tz_localize(None)
+            else:
+                hist.index = hist.index.tz_localize('UTC').tz_convert(st.session_state.timezone).tz_localize(None)
+            
             close_prices = hist['Close'] * asset['shares'] * fx_rate
             intraday_series.append(close_prices.rename(asset['ticker']))
             current_price = hist['Close'].iloc[-1] * fx_rate
@@ -273,7 +284,7 @@ else:
             margin=dict(l=0, r=0, t=10, b=0),
             height=300,
             paper_bgcolor='rgba(255,255,255,0)', plot_bgcolor='rgba(255,255,255,0)',
-            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+            xaxis=dict(showgrid=False, showticklabels=True, zeroline=False, tickfont=dict(color="#000000")),
             yaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
             hovermode="x unified"
         )
