@@ -109,15 +109,14 @@ def get_fx_rate(target_currency):
 fx_rate = get_fx_rate(st.session_state.currency)
 curr_sym = {"USD": "$", "EUR": "€", "GBP": "£"}[st.session_state.currency]
 
-# --- STOCK & CRYPTO SEARCH SUGGESTIONS LIBRARY ---
+# --- SEARCH SUGGESTIONS LIBRARY ---
 TICKER_SUGGESTIONS = [
     "--- Select a Suggestion Below ---",
     "AAPL (Apple)", "MSFT (Microsoft)", "NVDA (NVIDIA)", "TSLA (Tesla)", 
     "AMZN (Amazon)", "GOOGL (Alphabet)", "META (Meta Platforms)", "NFLX (Netflix)", 
     "AMD (Advanced Micro Devices)", "PLTR (Palantir)", "COIN (Coinbase)", "HOOD (Robinhood)",
     "VOO (S&P 500 ETF)", "SPY (S&P 500 ETF)", "QQQ (Nasdaq 100)", "IWM (Russell 2000)",
-    "BTC-USD (Bitcoin)", "ETH-USD (Ethereum)", "SOL-USD (Solana)", "DOGE-USD (Dogecoin)",
-    "XRP-USD (Ripple)", "ADA-USD (Cardano)"
+    "BTC-USD (Bitcoin)", "ETH-USD (Ethereum)", "SOL-USD (Solana)", "DOGE-USD (Dogecoin)"
 ]
 
 # --- SIDEBAR CONTROL PANEL ---
@@ -193,19 +192,21 @@ if is_portfolio_empty:
     st.markdown("<p style='text-align:center; color:#6c757d;'>Engine idle. Use the configuration matrix in the sidebar to seed asset layers.</p>", unsafe_allow_html=True)
 
 else:
-    # Fetch safe historical boundaries to build clean timezone parsing slices
+    # --- EXPANDED TIMEFRAME ARCHITECTURE LAYER ---
     tf_map = {
         "Live": ("2d", "1m"),
         "1D": ("2d", "2m"),
-        "1W": ("5d", "15m"),
-        "1M": ("1mo", "1d"),
-        "1Y': ("1y", "1wk"),
-        "5Y": ("5y", "1wk"),
+        "1W": ("7d", "15m"),
+        "1M": ("1mo", "1h"),
+        "3M": ("3mo", "1d"),
+        "YTD": ("ytd", "1d"),
+        "1Y": ("1y", "1d"),
         "ALL": ("max", "1mo")
     }
     
-    t_cols = st.columns(6)
-    for idx, tf_opt in enumerate(["Live", "1D", "1W", "1M", "5Y", "ALL"]):
+    # Render exactly 8 tracking dimension headers
+    t_cols = st.columns(8)
+    for idx, tf_opt in enumerate(["Live", "1D", "1W", "1M", "3M", "YTD", "1Y", "ALL"]):
         if t_cols[idx].button(tf_opt, use_container_width=True, type="primary" if st.session_state.timeframe == tf_opt else "secondary"):
             st.session_state.timeframe = tf_opt
             st.rerun()
@@ -247,21 +248,21 @@ else:
         portfolio_df = pd.concat(intraday_series, axis=1).ffill().bfill().sort_index()
         portfolio_df['Total'] = portfolio_df.sum(axis=1)
         
-        # --- DATA-DRIVEN ANCHOR SYSTEM (Bypasses server clock drifts) ---
+        # --- DATA-DRIVEN ANCHOR SYSTEM ---
         latest_now = portfolio_df.index[-1]
         
         if st.session_state.timeframe == "Live":
             start_filter = latest_now - pd.Timedelta(hours=1)
             portfolio_df = portfolio_df[portfolio_df.index >= start_filter]
-            xaxis_format = "%I:%M %p"  # Clean Time Display (e.g. 10:42 AM)
+            xaxis_format = "%I:%M %p"  
         elif st.session_state.timeframe == "1D":
-            start_filter = latest_now.normalize()  # Drop everything before 12:00 AM today
+            start_filter = latest_now.normalize()  
             portfolio_df = portfolio_df[portfolio_df.index >= start_filter]
-            xaxis_format = "%I:%M %p"  # Clean Time Display (e.g. 02:15 PM)
-        elif st.session_state.timeframe in ["1W", "1M"]:
-            xaxis_format = "%b %d"     # Macro Date Display (e.g. May 28)
+            xaxis_format = "%I:%M %p"  
+        elif st.session_state.timeframe in ["1W", "1M", "3M"]:
+            xaxis_format = "%b %d"     
         else:
-            xaxis_format = "%Y-%m"    # Multi-Year Display (e.g. 2026-05)
+            xaxis_format = "%b %Y"    
 
         if portfolio_df.empty:
             st.info("No localized asset adjustments captured inside this time segment yet.")
@@ -300,8 +301,8 @@ else:
                     showticklabels=True, 
                     zeroline=False, 
                     tickfont=dict(color="#000000"),
-                    tickformat=xaxis_format,       # STRIP DATES FROM BASE AXIS LABELS
-                    hoverformat=xaxis_format       # STRIP DATES FROM HOVER POPUPS
+                    tickformat=xaxis_format,       
+                    hoverformat=xaxis_format       
                 ),
                 yaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
                 hovermode="x unified"
